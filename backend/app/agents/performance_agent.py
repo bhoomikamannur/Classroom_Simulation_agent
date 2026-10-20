@@ -3,6 +3,7 @@ import json
 import re
 
 from backend.app.llm.ollama_client import generate
+from backend.app.rag.course_context import build_course_context
 
 
 PERFORMANCE_INSTRUCTIONS = """
@@ -922,12 +923,30 @@ class PerformanceAgent:
         # ------------------------------------------------------------
 
         if not course_context:
-
-            course_context = (
-                "No course reference was provided. "
-                "Do not assume whether the student's statements "
-                "are correct or incorrect based on outside knowledge."
+            student_query = "\n".join(
+                item.get("content", "").strip()
+                for item in interactions
+                if item.get("role", "").lower() == "user"
+                and item.get("content", "").strip()
             )
+
+            try:
+                course_context = build_course_context(student_query)
+            except Exception:
+                # Retrieval failure must not crash diagnosis.
+                # Without course material, the LLM must not use
+                # outside knowledge to decide correctness.
+                course_context = None
+
+        if not course_context:
+            course_context = (
+                "No relevant course reference was retrieved or provided. "
+                "Do not assume whether the student's statements are "
+                "correct or incorrect based on outside knowledge. "
+                "Classify claims as uncertain when the reference is "
+                "insufficient to evaluate them."
+            )
+
 
         # ------------------------------------------------------------
         # STEP 3 — Separate student evidence and tutor context
