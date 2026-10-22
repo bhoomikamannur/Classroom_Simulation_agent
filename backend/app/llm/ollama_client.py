@@ -1,3 +1,4 @@
+
 import requests
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
@@ -12,6 +13,10 @@ def generate(prompt: str) -> str:
             "prompt": prompt,
             "stream": False,
             "think": False,
+            "options": {
+                "num_predict": 512,
+                "temperature": 0.1,
+            },
         },
         timeout=120,
     )
