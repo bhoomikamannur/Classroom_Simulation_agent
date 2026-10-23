@@ -172,3 +172,36 @@ def test_performance_to_intervention_integration(monkeypatch):
     assert "EVIDENCE INTERPRETATION" in intervention_prompt
     assert "Planning" in intervention_prompt
     assert COURSE_CONTEXT in intervention_prompt
+
+
+def test_parser_corrects_explicit_classification_contradiction():
+    """A claim marked aligned must be corrected when its reason
+    explicitly says it conflicts with the course definition."""
+
+    response = json.dumps({
+        "concept": "Planning and Memory",
+        "evidence_analysis": [
+            {
+                "concept": "Memory",
+                "student_statement": (
+                    "Memory is the process of choosing the next action."
+                ),
+                "central_claim": (
+                    "The student believes memory chooses the next action."
+                ),
+                "classification": "aligned",
+                "reason": (
+                    "The claim conflicts with the course definition, "
+                    "which defines memory as retaining information "
+                    "from previous interactions."
+                ),
+            }
+        ],
+    })
+
+    agent = PerformanceAgent()
+    parsed = agent.parse_llm_response(response)
+
+    assert len(parsed["evidence_analysis"]) == 1
+    assert parsed["evidence_analysis"][0]["concept"] == "Memory"
+    assert parsed["evidence_analysis"][0]["classification"] == "conflict"

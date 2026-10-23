@@ -95,9 +95,10 @@ OUTPUT:
 Return ONLY valid JSON.
 
 {
-  "concept": "main concept being discussed",
+  "concept": "main concept discussed, or a concise summary if multiple concepts",
   "evidence_analysis": [
     {
+      "concept": "specific course concept this statement relates to",
       "student_statement": "exact or near-exact student statement",
       "central_claim": "what the student is actually claiming",
       "classification": "aligned | conflict | uncertain",
@@ -105,6 +106,13 @@ Return ONLY valid JSON.
     }
   ]
 }
+
+Analyze every substantive student statement separately. 
+Assign each statement to the most relevant specific course concept from the course reference. 
+For example, if the student discusses Planning and Memory, keep them as separate concepts. 
+Do not use the subject ID as the concept name. 
+Tutor statements provide context but are not evidence of student understanding. 
+Do not invent concepts that are unsupported by the conversation or course reference.
 
 IMPORTANT — CENTRAL CLAIM FIDELITY:
 
@@ -180,6 +188,34 @@ the student is:
 
 Do not infer a correct relationship merely because one concept can
 reasonably be related to another.
+
+
+If one student statement contains claims about multiple concepts,
+create a separate evidence_analysis item for each concept-specific
+claim. Each item must have its own concept, central_claim,
+classification, and reason. Do not combine claims about Planning
+and Memory into a single item merely because they appear in the
+same student message. Keep the original student_statement text
+for each item, but evaluate only the claim relevant to that item.
+
+
+For each concept-specific claim, compare the student's actual claim
+against the definition of that same concept in the course reference.
+Do not mark a claim as aligned merely because it mentions a related
+concept or because two concepts are connected.
+
+For example, if the course reference defines:
+- Planning as selecting and ordering actions to achieve a goal.
+- Memory as storing or retrieving information from previous interactions.
+
+Then:
+- "Planning means storing information" is a conflict for Planning.
+- "Memory chooses the next action" is a conflict for Memory.
+- "Memory provides information that helps planning" can be aligned.
+
+Classify each claim independently. Use "aligned" only when the claim
+is consistent with the course reference for the assigned concept.
+
 
 UNCERTAINTY:
 
@@ -535,6 +571,13 @@ class PerformanceAgent:
             if not isinstance(item, dict):
                 continue
 
+            item_concept = item.get("concept", concept)
+
+            if not isinstance(item_concept, str):
+                item_concept = str(item_concept)
+
+            item_concept = item_concept.strip() or concept
+
             student_statement = item.get(
                 "student_statement",
                 "",
@@ -567,6 +610,7 @@ class PerformanceAgent:
             if classification not in valid_classifications:
                 classification = "uncertain"
 
+            
             student_statement = student_statement.strip()
             central_claim = central_claim.strip()
             reason = reason.strip()
@@ -574,8 +618,30 @@ class PerformanceAgent:
             if not student_statement:
                 continue
 
+            # Correct an explicit contradiction between the reason and classification.
+            reason_lower = reason.lower()
+
+            explicit_conflict = any(
+                phrase in reason_lower
+                for phrase in (
+                    "conflicts with the course reference",
+                    "conflicts with the course definition",
+                    "contradicts the course reference",
+                    "contradicts the course definition",
+                    "equates two concepts that the course distinguishes",
+                    "equates planning with memory",
+                    "equates memory with planning",
+                    "incorrectly identifies memory as",
+                )
+            )
+
+            if classification == "aligned" and explicit_conflict:
+                classification = "conflict"
+
+
             validated_analysis.append(
                 {
+                    "concept": item_concept,
                     "student_statement": student_statement,
                     "central_claim": central_claim,
                     "classification": classification,
@@ -710,179 +776,156 @@ class PerformanceAgent:
     # 4. BUILD FINAL DIAGNOSIS
     # ================================================================
 
+
     def build_diagnosis(
         self,
         interpretation: dict[str, Any],
     ) -> dict[str, Any]:
         """
-        Convert Qwen's evidence interpretation into the final
-        Performance Agent diagnosis.
+        Build an independent diagnosis for each concept discussed.
+        Supports both concept-labelled and legacy evidence items.
         """
-
-        concept = interpretation.get(
-            "concept",
-            "",
-        ).strip()
+        default_concept = interpretation.get("concept", "")
+        if not isinstance(default_concept, str):
+            default_concept = str(default_concept)
+        default_concept = default_concept.strip() or "Unknown"
 
         evidence_analysis = interpretation.get(
-            "evidence_analysis",
-            [],
+            "evidence_analysis", []
         )
+        if not isinstance(evidence_analysis, list):
+            evidence_analysis = []
 
-        state = self.determine_learning_state(
-            evidence_analysis
-        )
-
-        understanding = state["understanding"]
-        confidence = state["confidence"]
-
-        # ------------------------------------------------------------
-        # Only include substantive student evidence.
-        #
-        # Pure uncertainty such as:
-        # "I don't understand planning"
-        #
-        # should not appear as evidence of understanding.
-        # ------------------------------------------------------------
-
-        evidence = []
+        # Group evidence by its specific concept, preserving conversation order.
+        grouped_evidence: dict[str, list[dict[str, Any]]] = {}
 
         for item in evidence_analysis:
-
-            statement = item.get(
-                "student_statement",
-                "",
-            ).strip()
-
-            if not statement:
+            if not isinstance(item, dict):
                 continue
 
-            # Don't treat pure uncertainty statements as evidence.
-            normalized = statement.lower()
+            concept = item.get("concept", default_concept)
+            if not isinstance(concept, str):
+                concept = str(concept)
+            concept = concept.strip() or default_concept
 
-            uncertainty_only = (
-                normalized.startswith("i don't understand")
-                or normalized.startswith("i do not understand")
-                or normalized.startswith("i'm confused")
-                or normalized.startswith("i am confused")
-                or normalized.startswith("i don't get it")
-                or normalized.startswith("i do not get it")
-            )
+            grouped_evidence.setdefault(concept, []).append(item)
 
-            if uncertainty_only:
-                continue
+        # Preserve a diagnosis even when there is no usable evidence.
+        if not grouped_evidence:
+            grouped_evidence[default_concept] = []
 
-            evidence.append(statement)
-
-        # ------------------------------------------------------------
-        # Misconceptions
-        # ------------------------------------------------------------
-
-        misconceptions = []
-
-        for item in evidence_analysis:
-
-            if item.get("classification") != "conflict":
-                continue
-
-            reason = item.get(
-                "reason",
-                "",
-            ).strip()
-
-            if reason and reason not in misconceptions:
-                misconceptions.append(reason)
-
-        # ------------------------------------------------------------
-        # Strengths
-        # ------------------------------------------------------------
-
+        concept_results = []
         strengths = []
-
-        if understanding == "understood":
-            strengths.append(
-                f"Demonstrated understanding of {concept} "
-                "through a course-aligned explanation."
-            )
-
-        # ------------------------------------------------------------
-        # Weaknesses
-        # ------------------------------------------------------------
-
         weaknesses = []
+        observations = []
+        confidences = []
 
-        if understanding == "confused":
+        for concept, items in grouped_evidence.items():
+            state = self.determine_learning_state(items)
+            understanding = state["understanding"]
+            confidence = state["confidence"]
+            confidences.append(confidence)
 
-            if misconceptions:
-                weaknesses.append(
-                    misconceptions[-1]
+            evidence = []
+            misconceptions = []
+
+            for item in items:
+                statement = item.get("student_statement", "")
+                if not isinstance(statement, str):
+                    statement = str(statement)
+                statement = statement.strip()
+
+                if statement:
+                    normalized = statement.lower()
+                    uncertainty_only = (
+                        normalized.startswith("i don't understand")
+                        or normalized.startswith("i do not understand")
+                        or normalized.startswith("i'm confused")
+                        or normalized.startswith("i am confused")
+                        or normalized.startswith("i don't get it")
+                        or normalized.startswith("i do not get it")
+                    )
+                    if not uncertainty_only and statement not in evidence:
+                        evidence.append(statement)
+
+                if item.get("classification") == "conflict":
+                    reason = item.get("reason", "")
+                    if not isinstance(reason, str):
+                        reason = str(reason)
+                    reason = reason.strip()
+                    if reason and reason not in misconceptions:
+                        misconceptions.append(reason)
+
+            if understanding == "understood":
+                strengths.append(
+                    f"Demonstrated understanding of {concept} "
+                    "through a course-aligned explanation."
                 )
+                observation = (
+                    f"The student's latest substantive response is "
+                    f"consistent with the course reference for {concept}."
+                )
+
+            elif understanding == "confused":
+                if misconceptions:
+                    weaknesses.append(misconceptions[-1])
+                else:
+                    weaknesses.append(
+                        f"Current understanding of {concept} "
+                        "conflicts with the course reference."
+                    )
+
+                observation = (
+                    f"The student's latest substantive response conflicts "
+                    f"with the course reference for {concept}."
+                )
+                if len(misconceptions) >= 2:
+                    observation += (
+                        " The conflicting interpretation appears repeatedly "
+                        "across the interaction."
+                    )
+
+            elif understanding == "partial":
+                weaknesses.append(
+                    f"Understanding of {concept} remains incomplete "
+                    "or contains unresolved uncertainty."
+                )
+                observation = (
+                    f"The student shows partial understanding of {concept}, "
+                    "but the available evidence does not demonstrate "
+                    "consistently course-aligned understanding."
+                )
+
             else:
-                weaknesses.append(
-                    f"Current understanding of {concept} "
-                    "conflicts with the course reference."
+                observation = (
+                    f"There is insufficient evidence to determine "
+                    f"the student's understanding of {concept}."
                 )
 
-        elif understanding == "partial":
+            concept_results.append({
+                "concept": concept,
+                "understanding": understanding,
+                "evidence": evidence,
+                "misconceptions": misconceptions,
+            })
+            observations.append(observation)
 
-            weaknesses.append(
-                f"Understanding of {concept} remains incomplete "
-                "or contains unresolved uncertainty."
-            )
-
-        # ------------------------------------------------------------
-        # Overall observation
-        # ------------------------------------------------------------
-
-        if understanding == "understood":
-
-            observation = (
-                f"The student's latest substantive response is "
-                f"consistent with the course reference for {concept}."
-            )
-
-        elif understanding == "confused":
-
-            observation = (
-                f"The student's latest substantive response conflicts "
-                f"with the course reference for {concept}."
-            )
-
-            if len(misconceptions) >= 2:
-                observation += (
-                    " The conflicting interpretation appears repeatedly "
-                    "across the interaction."
-                )
-
-        elif understanding == "partial":
-
-            observation = (
-                f"The student shows partial understanding of {concept}, "
-                "but the available evidence does not demonstrate a "
-                "consistently course-aligned understanding."
-            )
-
+        # Use the lowest confidence among concepts for the overall diagnosis.
+        if "low" in confidences:
+            overall_confidence = "low"
+        elif "medium" in confidences:
+            overall_confidence = "medium"
         else:
-
-            observation = (
-                "There is insufficient evidence to determine "
-                "the student's understanding."
-            )
-
-        concept_result = {
-            "concept": concept or "Unknown",
-            "understanding": understanding,
-            "evidence": evidence,
-            "misconceptions": misconceptions,
-        }
+            overall_confidence = "high"
 
         return {
-            "concepts": [concept_result],
+            "concepts": concept_results,
             "strengths": strengths,
             "weaknesses": weaknesses,
-            "overall_observation": observation,
-            "confidence": confidence,
+            "overall_observation": " ".join(observations),
+            "confidence": overall_confidence,
         }
+
 
     # ================================================================
     # 5. MAIN ANALYSIS
