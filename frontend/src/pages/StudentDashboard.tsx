@@ -1,0 +1,67 @@
+import { useEffect, useState } from 'react'
+import { ArrowLeft, BookOpen, BookOpenCheck, Bot, ClipboardList, FileText, LoaderCircle, MessageCircle, Plus, RefreshCw } from 'lucide-react'
+import type { AuthUser, ChatMessage, SavedTutorChat } from '../types'
+import { StudentSidebar } from '../components/student/StudentSidebar'
+import { TutorChat } from '../components/student/TutorChat'
+import { apiFetch } from '../services/api'
+
+type Course = { course_id: string; name: string; description: string; professor_id: string; enrolled_at?: string }
+type Material = { document_id: string; filename: string; file_type: string; file_size: number; status: string; uploaded_at: string; pages_or_slides_extracted?: number; chunk_count?: number }
+type Props = {
+  currentUser: AuthUser | null; onLogout: () => void; selectedCourseId: string; onSelectCourse: (id: string) => void
+  savedChats: SavedTutorChat[]; activeChatId: string; chatMessages: ChatMessage[]; chatLoading: boolean; chatError: string; chatInput: string
+  onStartNewChat: () => void; onOpenChat: (chatId: string) => void; onChatInputChange: (value: string) => void; onSendMessage: () => void
+}
+async function read<T>(response: Response): Promise<T> {
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Request failed.')
+  return data as T
+}
+export function StudentDashboard(props: Props) {
+  const { currentUser, onLogout, selectedCourseId, onSelectCourse, savedChats, activeChatId, chatMessages, chatLoading, chatError, chatInput, onStartNewChat, onOpenChat, onChatInputChange, onSendMessage } = props
+  const [courses, setCourses] = useState<Course[]>([])
+  const [materials, setMaterials] = useState<Material[]>([])
+  const [enrollmentCode, setEnrollmentCode] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [view, setView] = useState<'courses' | 'course' | 'chat'>('courses')
+  const selectedCourse = courses.find((course) => course.course_id === selectedCourseId)
+  async function loadCourses() {
+    setLoading(true); setError('')
+    try { const data = await read<{ courses: Course[] }>(await apiFetch('/api/courses/mine')); setCourses(data.courses) }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not load courses.') }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { void loadCourses() }, [])
+  useEffect(() => {
+    if (!selectedCourseId) { setMaterials([]); return }
+    let active = true
+    apiFetch(`/api/documents/course/${encodeURIComponent(selectedCourseId)}`).then((r) => read<{ documents: Material[] }>(r)).then((data) => { if (active) setMaterials(data.documents) }).catch((e) => { if (active) setError(e instanceof Error ? e.message : 'Could not load course materials.') })
+    return () => { active = false }
+  }, [selectedCourseId])
+  async function joinCourse(event: React.FormEvent) {
+    event.preventDefault(); if (!enrollmentCode.trim() || busy) return
+    setBusy(true); setError('')
+    try {
+      const data = await read<{ course: Course }>(await apiFetch('/api/courses/enroll', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enrollment_code: enrollmentCode.trim() }) }))
+      setEnrollmentCode(''); await loadCourses(); onSelectCourse(data.course.course_id); setView('course')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not join course.') }
+    finally { setBusy(false) }
+  }
+  if (view === 'chat' && selectedCourse) return <section className="student-dashboard"><StudentSidebar currentUser={currentUser} savedChats={savedChats} activeChatId={activeChatId} onStartNewChat={onStartNewChat} onOpenChat={onOpenChat}/><div className="student-chat-column"><button className="secondary-button course-back" onClick={() => setView('course')}><ArrowLeft size={16}/> Back to {selectedCourse.name}</button><TutorChat onLogout={onLogout} chatMessages={chatMessages} chatLoading={chatLoading} chatError={chatError} chatInput={chatInput} onStartNewChat={onStartNewChat} onChatInputChange={onChatInputChange} onSendMessage={onSendMessage}/></div></section>
+  return <section className="student-home">
+    <header className="student-home-header"><div><span className="eyebrow">STUDENT WORKSPACE</span><h1>{view === 'course' && selectedCourse ? selectedCourse.name : `Welcome${currentUser?.email ? `, ${currentUser.email.split('@')[0]}` : ''}`}</h1><p>{view === 'course' ? selectedCourse?.description || 'Your course learning space.' : 'Choose a course to continue learning.'}</p></div><button className="secondary-button" onClick={onLogout}>Log out</button></header>
+    {error && <div className="feedback error-feedback">{error}<button className="feedback-close" onClick={() => setError('')}>×</button></div>}
+    {view === 'courses' ? <>
+      <div className="student-section-heading"><div><h2>My courses</h2><p>Open a course to access its resources and AI tutor.</p></div><button className="secondary-button" onClick={() => void loadCourses()}><RefreshCw size={15}/> Refresh</button></div>
+      {loading ? <div className="course-loading"><LoaderCircle className="spin"/> Loading your courses…</div> : courses.length ? <div className="student-course-grid">{courses.map((course) => <button className="student-course-tile" key={course.course_id} onClick={() => { onSelectCourse(course.course_id); setView('course') }}><span className="course-tile-icon"><BookOpen size={23}/></span><strong>{course.name}</strong><span>{course.description || 'Open course workspace'}</span><small>Open course <ArrowLeft size={13}/></small></button>)}</div> : <div className="empty-courses"><BookOpenCheck size={34}/><h3>No courses yet</h3><p>Join a course using the enrollment code shared by your professor.</p></div>}
+      <form className="join-course-form" onSubmit={joinCourse}><div><strong>Join a course</strong><span>Enter the enrollment code provided by your professor.</span></div><input value={enrollmentCode} onChange={(e) => setEnrollmentCode(e.target.value.toUpperCase())} placeholder="Enrollment code" aria-label="Enrollment code"/><button className="primary-button" disabled={busy || !enrollmentCode.trim()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>} Join course</button></form>
+    </> : selectedCourse && <>
+      <button className="secondary-button course-back" onClick={() => setView('courses')}><ArrowLeft size={16}/> All courses</button>
+      <div className="course-feature-grid"><article className="course-feature-card"><span className="course-feature-icon"><FileText size={22}/></span><h3>Course materials</h3><p>Lecture notes and presentations shared by your professor.</p><strong>{materials.length} resources</strong></article><article className="course-feature-card"><span className="course-feature-icon"><ClipboardList size={22}/></span><h3>My test marks</h3><p>Assessment results will appear here when your professor publishes them.</p><strong>Assessment records</strong></article><article className="course-feature-card"><span className="course-feature-icon"><Bot size={22}/></span><h3>AI Tutor</h3><p>Ask questions grounded in this course's uploaded materials.</p><button className="primary-button" onClick={() => setView('chat')}><MessageCircle size={16}/> Open Tutor Chat</button></article></div>
+      <section className="course-materials-panel"><div className="student-section-heading"><div><h2>Learning materials</h2><p>Resources available for this course.</p></div><button className="secondary-button" onClick={() => { setMaterials([]); void apiFetch(`/api/documents/course/${encodeURIComponent(selectedCourseId)}`).then((r) => read<{documents: Material[]}>(r)).then((d) => setMaterials(d.documents)).catch((e) => setError(e.message)) }}><RefreshCw size={15}/> Refresh</button></div>
+      {materials.length ? materials.map((item) => <div className="student-material-row" key={item.document_id}><FileText size={20}/><div><strong>{item.filename}</strong><small>{item.file_type.toUpperCase()} · {item.pages_or_slides_extracted ?? 0} pages/slides · {item.chunk_count ?? 0} indexed sections</small></div><span className={`material-status ${item.status}`}>{item.status}</span></div>) : <div className="empty-materials">No course materials have been uploaded yet.</div>}</section>
+    </>}
+  </section>
+}

@@ -11,7 +11,7 @@ agent = InterventionAgent()
 
 SAMPLE_PERFORMANCE_RESULT = {
     "student_id": "23bcs030",
-    "subject_id": "agentic_ai",
+    "course_name": "agentic_ai",
     "diagnosis": {
         "concepts": [
             {
@@ -83,7 +83,7 @@ def test_confused_but_improving():
 
     print("\n=== INTERVENTION FOR AN IMPROVING STUDENT ===")
     print("Student:", result["student_id"])
-    print("Subject:", result["subject_id"])
+    print("Subject:", result["course_name"])
 
     print("\nSTUDENT INTERVENTION")
     for key, value in result["intervention"].items():
@@ -95,7 +95,7 @@ def test_confused_but_improving():
 
     # Structural validation
     assert result["student_id"] == "23bcs030"
-    assert result["subject_id"] == "agentic_ai"
+    assert result["course_name"] == "agentic_ai"
 
     intervention = result["intervention"]
     teacher_insight = result["teacher_insight"]

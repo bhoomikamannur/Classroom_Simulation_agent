@@ -1,0 +1,22 @@
+.auth-page{min-height:calc(100vh - 150px);display:grid;place-items:center;padding:48px 20px 24px}
+.auth-card{width:min(100%,440px);padding:36px;border:1px solid rgba(120,130,160,.2);border-radius:24px;background:var(--card,#fff);box-shadow:0 22px 70px rgba(25,35,70,.09)}
+.auth-brand-mark{width:54px;height:54px;display:grid;place-items:center;border-radius:16px;color:#fff;background:linear-gradient(135deg,#6c63e8,#388bd8);margin-bottom:20px}
+.auth-eyebrow{font-size:11px;letter-spacing:.16em;font-weight:800;color:#6c63e8;margin:0 0 8px}
+.auth-card h1{font-size:clamp(28px,5vw,36px);margin:0 0 8px}
+.auth-subtitle{color:#737b8e;margin:0 0 26px;line-height:1.5}
+.auth-form{display:grid;gap:10px}
+.auth-form>label{font-size:13px;font-weight:700;margin-top:7px}
+.auth-input-wrap{display:flex;align-items:center;gap:10px;min-height:48px;border:1px solid #dfe3ec;border-radius:12px;padding:0 13px;color:#81899a}
+.auth-input-wrap:focus-within{border-color:#7770e8;box-shadow:0 0 0 3px rgba(108,99,232,.12)}
+.auth-input-wrap input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:inherit;font:inherit}
+.auth-role-options{display:flex;gap:20px;padding:8px 0}
+.auth-role-options label{display:flex;align-items:center;gap:7px;font-size:14px}
+.auth-submit{margin-top:12px;min-height:48px;border:0;border-radius:12px;color:#fff;background:#625cda;font-weight:750;cursor:pointer;display:flex;justify-content:center;align-items:center;gap:9px}
+.auth-submit:disabled{opacity:.65;cursor:wait}
+.auth-switch{text-align:center;color:#737b8e;font-size:14px;margin:22px 0 0}
+.auth-switch button{border:0;background:none;color:#625cda;font:inherit;font-weight:750;cursor:pointer}
+.auth-error{padding:10px 12px;border-radius:10px;font-size:13px;color:#a32939;background:#fff0f1}
+.auth-footnote{text-align:center;color:#8b91a0;font-size:12px;margin-top:20px}
+.auth-loading{min-height:60vh;display:flex;align-items:center;justify-content:center;gap:12px;color:#737b8e}
+.auth-logout-button{margin-left:16px;border:1px solid #dfe3ec;border-radius:9px;padding:8px 12px;background:transparent;cursor:pointer;color:inherit;font:inherit}
+@media(max-width:520px){.auth-card{padding:26px 20px}}

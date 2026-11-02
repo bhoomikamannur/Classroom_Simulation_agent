@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import Any
-import uuid
 
 import chromadb
 
@@ -18,40 +17,63 @@ _collection = _client.get_or_create_collection(
 
 
 def add_chunks(chunks: list[dict[str, Any]]) -> int:
+    """Embed and store chunks, requiring explicit course ownership metadata."""
     if not chunks:
         return 0
 
+    for item in chunks:
+        metadata = item.get("metadata") or {}
+        required = ("document_id", "course_id", "professor_id")
+        if any(not metadata.get(key) for key in required):
+            raise ValueError(
+                "Every chunk must include document_id, course_id and professor_id."
+            )
+
     texts = [item["text"] for item in chunks]
     embeddings = embed_texts(texts)
-
     ids = [
-        f"{item['metadata'].get('source_name', 'document')}-"
-        f"{item['metadata'].get('source_type', 'unknown')}-"
-        f"{item['metadata'].get('page', item['metadata'].get('slide', 'x'))}-"
-        f"{item['metadata'].get('chunk_index', 0)}-"
-        f"{uuid.uuid4().hex[:8]}"
-        for item in chunks
+        f"{item['metadata']['document_id']}-{index}"
+        for index, item in enumerate(chunks)
     ]
 
-    _collection.add(
+    # Deterministic IDs make a retry idempotent for a given document.
+    _collection.upsert(
         ids=ids,
         documents=texts,
         embeddings=embeddings,
         metadatas=[item["metadata"] for item in chunks],
     )
-
     return len(chunks)
 
 
-def search(query: str, top_k: int = 5) -> list[dict[str, Any]]:
+def delete_document_chunks(document_id: str) -> int:
+    """Delete every vector belonging to one uploaded document."""
+    existing = _collection.get(
+        where={"document_id": document_id},
+        include=[],
+    )
+    ids = existing.get("ids", [])
+    if ids:
+        _collection.delete(ids=ids)
+    return len(ids)
+
+
+def search(
+    query: str,
+    course_id: str,
+    top_k: int = 5,
+) -> list[dict[str, Any]]:
+    """Search only chunks belonging to the specified course."""
     if top_k < 1:
         raise ValueError("top_k must be at least 1")
+    if not course_id or not course_id.strip():
+        raise ValueError("course_id is required for course-scoped retrieval.")
 
     query_embedding = embed_query(query)
-
     result = _collection.query(
         query_embeddings=[query_embedding],
         n_results=top_k,
+        where={"course_id": course_id.strip()},
         include=["documents", "metadatas", "distances"],
     )
 
@@ -60,10 +82,6 @@ def search(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     distances = result.get("distances", [[]])[0]
 
     return [
-        {
-            "text": document,
-            "metadata": metadata,
-            "distance": distance,
-        }
+        {"text": document, "metadata": metadata, "distance": distance}
         for document, metadata, distance in zip(documents, metadatas, distances)
     ]

@@ -11,7 +11,7 @@ def test_persistent_misconception_gets_targeted_intervention(monkeypatch):
 
     performance_result = {
         "student_id": "23bcs030",
-        "subject_id": "agentic_ai",
+        "course_name": "agentic_ai",
         "diagnosis": {
             "concepts": [
                 {
@@ -64,7 +64,7 @@ def test_persistent_misconception_gets_targeted_intervention(monkeypatch):
 
     mock_response = {
         "student_id": "23bcs030",
-        "subject_id": "agentic_ai",
+        "course_name": "agentic_ai",
         "intervention": {
             "priority": "high",
             "objective": (
@@ -128,7 +128,7 @@ def test_persistent_misconception_gets_targeted_intervention(monkeypatch):
     teacher_insight = result["teacher_insight"]
 
     assert result["student_id"] == "23bcs030"
-    assert result["subject_id"] == "agentic_ai"
+    assert result["course_name"] == "agentic_ai"
 
     assert intervention["objective"].strip()
     assert intervention["activity"].strip()

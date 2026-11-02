@@ -219,3 +219,49 @@ def get_recent_interactions(
 
     records.reverse()
     return records
+
+
+def get_student_course_interactions(
+    student_id: str,
+    course_id: str,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Return a student's persisted interactions for one course.
+
+    Records are returned in chronological order across all sessions so the
+    Performance Agent can evaluate the student's learning trajectory.
+    """
+    student_id = student_id.strip()
+    course_id = course_id.strip()
+
+    if not student_id or not course_id:
+        raise ValueError("student_id and course_id must be non-empty.")
+
+    if limit < 1 or limit > 5000:
+        raise ValueError("limit must be between 1 and 5000.")
+
+    ensure_learning_indexes()
+
+    records = list(
+        _interactions()
+        .find(
+            {
+                "student_id": student_id,
+                "course_id": course_id,
+            },
+            {"_id": 0},
+        )
+        .sort(
+            [
+                ("created_at", DESCENDING),
+                ("session_id", DESCENDING),
+                ("sequence", DESCENDING),
+            ]
+        )
+        .limit(limit)
+    )
+
+    # Fetch the most recent records, then restore chronological order for
+    # trajectory analysis by the Performance Agent.
+    records.reverse()
+    return records

@@ -53,7 +53,7 @@ def test_performance_to_intervention_integration(monkeypatch):
     # Deterministic response from the Intervention Agent's LLM.
     intervention_response = {
         "student_id": "23bcs030",
-        "subject_id": "agentic_ai",
+        "course_name": "agentic_ai",
         "intervention": {
             "priority": "low",
             "objective": (
@@ -114,7 +114,7 @@ def test_performance_to_intervention_integration(monkeypatch):
     # Stage 1: Analyze student evidence.
     performance_result = performance_agent.analyze(
         student_id="23bcs030",
-        subject_id="agentic_ai",
+        course_name="agentic_ai",
         interactions=interactions,
         course_context=COURSE_CONTEXT,
     )
@@ -122,7 +122,7 @@ def test_performance_to_intervention_integration(monkeypatch):
     assert performance_calls, "Performance Agent did not call its LLM."
 
     assert performance_result["student_id"] == "23bcs030"
-    assert performance_result["subject_id"] == "agentic_ai"
+    assert performance_result["course_name"] == "agentic_ai"
     assert isinstance(performance_result["diagnosis"], dict)
     assert performance_result["diagnosis"]
 
@@ -141,7 +141,7 @@ def test_performance_to_intervention_integration(monkeypatch):
 
     # Verify identity is preserved across the pipeline.
     assert intervention_result["student_id"] == "23bcs030"
-    assert intervention_result["subject_id"] == "agentic_ai"
+    assert intervention_result["course_name"] == "agentic_ai"
 
     # Verify the intervention response structure.
     assert isinstance(intervention_result["intervention"], dict)

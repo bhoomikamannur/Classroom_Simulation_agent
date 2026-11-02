@@ -2,11 +2,13 @@
 from pathlib import Path
 import tempfile
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
-
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from backend.app.analytics.academic_evaluation import evaluate_marks_file
-from backend.app.analytics.academic_analysis import analyze_marks_file
 from backend.app.analytics.policy_store import get_policy
+from backend.app.api.auth import require_role
+from backend.app.services.course_access import get_accessible_course
+from backend.app.analytics.assessment_columns import normalize_marks_for_policy
+from backend.app.analytics.academic_analysis import load_marks_file, analyze_marks
 
 router = APIRouter(
     prefix="/academic-evaluation",
@@ -18,6 +20,7 @@ router = APIRouter(
 async def upload_marks_for_evaluation(
     course_id: str = Form(..., min_length=1),
     file: UploadFile = File(...),
+    current_user: dict = Depends(require_role("professor")),
 ):
     """Evaluate uploaded student marks using the saved course policy."""
     filename = file.filename or ""
@@ -35,6 +38,7 @@ async def upload_marks_for_evaluation(
             detail="course_id must not be empty.",
         )
 
+    get_accessible_course(course_id.strip(), current_user)
     data = await file.read()
 
     if not data:
@@ -85,6 +89,7 @@ async def upload_marks_for_evaluation(
 async def analyze_class_marks(
     course_id: str = Form(..., min_length=1),
     file: UploadFile = File(...),
+    current_user: dict = Depends(require_role("professor")),
 ):
     """Return descriptive class and student analytics using the saved policy."""
     filename = file.filename or ""
@@ -102,6 +107,7 @@ async def analyze_class_marks(
             detail="course_id must not be empty.",
         )
 
+    get_accessible_course(course_id.strip(), current_user)
     data = await file.read()
 
     if not data:
@@ -128,8 +134,11 @@ async def analyze_class_marks(
             temp.write(data)
             temp_path = Path(temp.name)
 
-        return analyze_marks_file(
-            file_path=temp_path,
+        frame = load_marks_file(temp_path)
+        normalized, student_id_column = normalize_marks_for_policy(frame, policy)
+        return analyze_marks(
+            df=normalized,
+            student_id_column=student_id_column,
             assessment_max_marks=policy["assessment_max_marks"],
         )
 

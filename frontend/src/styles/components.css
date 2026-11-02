@@ -1,0 +1,10 @@
+.profile-menu { position: relative; display: inline-flex; }
+.profile-menu-trigger { display: flex; align-items: center; gap: 9px; border: 1px solid var(--border-color, #334155); border-radius: 12px; padding: 7px 10px; background: var(--surface, #fff); color: inherit; cursor: pointer; }
+.profile-menu-avatar { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: rgba(99,102,241,.14); }
+.profile-menu-identity { display: grid; text-align: left; gap: 2px; }
+.profile-menu-identity strong { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.profile-menu-identity small, .profile-menu-details small { opacity: .7; font-size: 11px; }
+.profile-menu-popover { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; width: 250px; padding: 8px; border: 1px solid var(--border-color, #334155); border-radius: 12px; background: var(--surface, #fff); box-shadow: 0 12px 32px rgba(0,0,0,.16); }
+.profile-menu-details { display: grid; gap: 4px; padding: 10px; overflow-wrap: anywhere; }
+.profile-menu-popover button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: transparent; color: #dc2626; text-align: left; cursor: pointer; }
+.profile-menu-popover button:hover { background: rgba(220,38,38,.08); }

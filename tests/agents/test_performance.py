@@ -137,7 +137,7 @@ for test_name, interactions in TEST_CASES.items():
 
     result = agent.analyze(
         student_id="23bcs030",
-        subject_id="agentic_ai",
+        course_name="agentic_ai",
         interactions=interactions,
         course_context=COURSE_CONTEXT,
     )

@@ -9,7 +9,7 @@ agent = InterventionAgent()
 
 SAMPLE_PERFORMANCE_RESULT = {
     "student_id": "23bcs030",
-    "subject_id": "agentic_ai",
+    "course_name": "agentic_ai",
     "diagnosis": {
         "concepts": [
             {
@@ -63,7 +63,7 @@ def test_intervention_output():
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
     assert result["student_id"] == "23bcs030"
-    assert result["subject_id"] == "agentic_ai"
+    assert result["course_name"] == "agentic_ai"
 
     intervention = result["intervention"]
     teacher_insight = result["teacher_insight"]

@@ -48,8 +48,8 @@ ANSWER STRUCTURE:
 class ContentAgent:
     """Content Agent that retrieves course material and generates an answer."""
 
-    def answer(self, query: str, top_k: int = 5) -> dict[str, Any]:
-        results = retrieve(query, top_k=top_k)
+    def answer(self, query: str, course_id: str, top_k: int = 5) -> dict[str, Any]:
+        results = retrieve(query, course_id=course_id, top_k=top_k)
 
         # No sufficiently relevant course material was found.
         if not results:

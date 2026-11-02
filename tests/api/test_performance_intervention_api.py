@@ -1,106 +1,33 @@
-
-import json
-
 from fastapi.testclient import TestClient
-
-import backend.app.agents.performance_agent as performance_module
-import backend.app.agents.intervention_agent as intervention_module
-
 from backend.app.main import app
+from backend.app.api import performance_intervention as api
 
+class FakeCollection:
+    def find_one(self, query, projection=None):
+        return {"_id": "enrollment-1"}
 
-client = TestClient(app)
+class FakeDatabase(dict):
+    def __getitem__(self, key):
+        return FakeCollection()
 
-
-def test_performance_intervention_endpoint(monkeypatch):
-    performance_response = {
-        "concept": "Planning",
-        "evidence_analysis": [
-            {
-                "student_statement": (
-                    "Planning means breaking a goal into smaller steps."
-                ),
-                "central_claim": (
-                    "Planning determines the steps needed to achieve a goal."
-                ),
-                "classification": "aligned",
-                "reason": "Matches the course definition.",
-            }
-        ],
-    }
-
-    intervention_response = {
-        "student_id": "S001",
-        "subject_id": "agentic_ai",
-        "intervention": {
-            "priority": "low",
-            "objective": "Strengthen understanding of planning.",
-            "explanation": "The student's statement aligns with the course.",
-            "activity": "Break a goal into smaller actions.",
-            "follow_up_question": "How would you plan a new task?",
-            "success_criteria": "Identifies a sensible sequence of actions.",
-        },
-        "teacher_insight": {
-            "observed_learning_state": "understood",
-            "evidence_summary": "The student describes planning correctly.",
-            "recommended_teaching_action": "Provide an application activity.",
-            "next_step": "Check application to a new example.",
-        },
-    }
-
-    def fake_performance_generate(*args, **kwargs):
-        return json.dumps(performance_response)
-
-    def fake_intervention_generate(*args, **kwargs):
-        return json.dumps(intervention_response)
-
-    monkeypatch.setattr(
-        performance_module, "generate", fake_performance_generate
-    )
-    monkeypatch.setattr(
-        intervention_module, "generate", fake_intervention_generate
-    )
-
-    response = client.post(
-        "/performance/intervene",
-        json={
-            "student_id": "S001",
-            "subject_id": "agentic_ai",
-            "interactions": [
-                {
-                    "role": "user",
-                    "content": (
-                        "Planning means breaking a high-level goal "
-                        "into smaller steps."
-                    ),
-                }
-            ],
-            "course_context": (
-                "Planning involves breaking a high-level goal "
-                "into a sequence of actions or subgoals."
-            ),
-        },
-    )
-
+def test_performance_intervention_endpoint(professor_client, monkeypatch):
+    course = {"course_id": "course-1", "name": "Agentic AI", "professor_id": "test-professor-001"}
+    monkeypatch.setattr(api, "get_accessible_course", lambda course_id, user: course)
+    monkeypatch.setattr(api, "get_mongodb_database", lambda: FakeDatabase())
+    monkeypatch.setattr(api.orchestrator, "execute", lambda **kwargs: {
+        "performance": {"student_id": "S001", "course_name": "Agentic AI", "diagnosis": {"overall_observation": "Evidence reviewed"}},
+        "intervention": {"student_id": "S001", "course_name": "Agentic AI", "intervention": {"activity": "Apply planning"}, "teacher_insight": {"next_step": "Review"}},
+    })
+    response = professor_client.post("/performance/intervene", json={"student_id": "S001", "course_id": "course-1"})
     assert response.status_code == 200
-
     result = response.json()
     assert result["performance"]["student_id"] == "S001"
-    assert result["intervention"]["student_id"] == "S001"
-    assert result["intervention"]["subject_id"] == "agentic_ai"
-    assert result["intervention"]["intervention"]["activity"]
-    assert result["intervention"]["teacher_insight"]["next_step"]
+    assert result["intervention"]["course_name"] == "Agentic AI"
 
+def test_performance_intervention_rejects_missing_student_id(professor_client):
+    response = professor_client.post("/performance/intervene", json={"course_id": "course-1"})
+    assert response.status_code == 422
 
-def test_performance_intervention_rejects_missing_student_id():
-    response = client.post(
-        "/performance/intervene",
-        json={
-            "subject_id": "agentic_ai",
-            "interactions": [
-                {"role": "user", "content": "Planning breaks goals into steps."}
-            ],
-        },
-    )
-
+def test_performance_intervention_rejects_legacy_subject_fields(professor_client):
+    response = professor_client.post("/performance/intervene", json={"student_id": "S001", "course_id": "course-1", "subject_id": "agentic_ai"})
     assert response.status_code == 422

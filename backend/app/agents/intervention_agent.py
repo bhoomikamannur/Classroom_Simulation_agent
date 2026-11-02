@@ -34,7 +34,7 @@ RULES:
 Return ONLY valid JSON with this structure:
 {
   "student_id": "string",
-  "subject_id": "string",
+  "course_name": "string",
   "intervention": {
     "priority": "high | medium | low",
     "objective": "string",
@@ -121,8 +121,9 @@ class InterventionAgent:
     def generate_recommendations(
         self,
         student_id: str,
-        subject_id: str,
+        course_name: str,
         diagnosis: dict[str, Any],
+        course_id: str | None = None,
         evidence_interpretation: dict[str, Any] | None = None,
         course_context: str | None = None,
     ) -> dict[str, Any]:
@@ -143,8 +144,11 @@ class InterventionAgent:
 STUDENT ID:
 {student_id}
 
-SUBJECT ID:
-{subject_id}
+COURSE ID:
+{course_id or "Not supplied"}
+
+COURSE NAME:
+{course_name}
 
 COURSE CONTEXT:
 {course_context or "No additional course context supplied."}
@@ -164,7 +168,8 @@ Return only the required JSON object.
 
         # Keep identity fields consistent with the input.
         result["student_id"] = student_id
-        result["subject_id"] = subject_id
+        result["course_id"] = course_id
+        result["course_name"] = course_name
 
         return result
 
@@ -180,15 +185,16 @@ Return only the required JSON object.
             raise ValueError("performance_result must be a dictionary.")
 
         student_id = performance_result.get("student_id")
-        subject_id = performance_result.get("subject_id")
+        course_name = performance_result.get("course_name")
+        course_id = performance_result.get("course_id")
         diagnosis = performance_result.get("diagnosis")
         evidence_interpretation = performance_result.get(
             "evidence_interpretation", {}
         )
 
-        if not student_id or not subject_id:
+        if not student_id or not course_name:
             raise ValueError(
-                "performance_result must contain student_id and subject_id."
+                "performance_result must contain student_id and course_name."
             )
 
         if not isinstance(diagnosis, dict) or not diagnosis:
@@ -198,8 +204,9 @@ Return only the required JSON object.
 
         return self.generate_recommendations(
             student_id=student_id,
-            subject_id=subject_id,
+            course_name=course_name,
             diagnosis=diagnosis,
+            course_id=course_id,
             evidence_interpretation=evidence_interpretation,
             course_context=course_context,
         )

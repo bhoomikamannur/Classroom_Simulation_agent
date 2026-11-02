@@ -1,16 +1,10 @@
 
 import uuid
 
-from fastapi.testclient import TestClient
-
-from backend.app.main import app
 from backend.app.analytics.policy_store import get_policy_collection
 
-
-client = TestClient(app)
-
-
-def test_academic_policy_api_crud_and_validation():
+def test_academic_policy_api_crud_and_validation(professor_client):
+    client = professor_client
     course_id = f"API_TEST_{uuid.uuid4().hex[:12]}"
     base_url = "/academic-policies"
 

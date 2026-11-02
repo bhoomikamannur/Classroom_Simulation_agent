@@ -11,7 +11,7 @@ def test_student_understands_concept_gets_extension_activity(monkeypatch):
 
     performance_result = {
         "student_id": "23bcs030",
-        "subject_id": "agentic_ai",
+        "course_name": "agentic_ai",
         "diagnosis": {
             "concepts": [
                 {
@@ -49,7 +49,7 @@ def test_student_understands_concept_gets_extension_activity(monkeypatch):
 
     mock_response = {
         "student_id": "23bcs030",
-        "subject_id": "agentic_ai",
+        "course_name": "agentic_ai",
         "intervention": {
             "priority": "low",
             "objective": (
@@ -104,7 +104,7 @@ def test_student_understands_concept_gets_extension_activity(monkeypatch):
     teacher_insight = result["teacher_insight"]
 
     assert result["student_id"] == "23bcs030"
-    assert result["subject_id"] == "agentic_ai"
+    assert result["course_name"] == "agentic_ai"
 
     assert intervention["priority"] == "low"
     assert intervention["objective"].strip()

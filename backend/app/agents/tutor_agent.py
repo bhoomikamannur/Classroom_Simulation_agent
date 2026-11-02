@@ -1,4 +1,3 @@
-
 from typing import Any
 
 from backend.app.llm.ollama_client import generate
@@ -48,34 +47,31 @@ class TutorAgent:
     def answer(
         self,
         student_id: str,
-        subject_id: str,
+        course_name: str,
         session_id: str,
         message: str,
+        course_id: str,
+        professor_id: str,
         top_k: int = 5,
-        course_id: str | None = None,
-        professor_id: str | None = None,
     ) -> dict[str, Any]:
 
         student_id = student_id.strip()
-        subject_id = subject_id.strip()
+        course_name = course_name.strip()
         session_id = session_id.strip()
         message = message.strip()
 
-        if not student_id or not subject_id or not session_id:
+        if not student_id or not course_name or not session_id:
             raise ValueError(
-                "student_id, subject_id and session_id must be non-empty."
+                "student_id, course_name and session_id must be non-empty."
             )
 
         if not message:
             raise ValueError("message must not be empty.")
 
-        # Temporary backward compatibility for callers that have not yet
-        # started sending course_id. Replace this fallback with a required
-        # course_id after the frontend and course registry are integrated.
-        course_id = (course_id or subject_id).strip()
-
-        if not course_id:
-            raise ValueError("course_id must be non-empty.")
+        course_id = course_id.strip()
+        professor_id = professor_id.strip()
+        if not course_id or not professor_id:
+            raise ValueError("course_id and professor_id must be non-empty.")
 
         # Ensure the session is scoped to this student and course.
         get_or_create_session(
@@ -103,7 +99,7 @@ class TutorAgent:
 
         # Retrieve relevant course material.
         # Course-specific filtering of ChromaDB is a separate upcoming step.
-        results = retrieve(message, top_k=top_k)
+        results = retrieve(message, course_id=course_id, top_k=top_k)
 
         if results:
             context_parts = [
@@ -132,8 +128,8 @@ STUDENT ID:
 COURSE ID:
 {course_id}
 
-SUBJECT:
-{subject_id}
+COURSE NAME:
+{course_name}
 
 {material_status}
 
@@ -185,7 +181,7 @@ TUTOR RESPONSE:
         return {
             "student_id": student_id,
             "course_id": course_id,
-            "subject_id": subject_id,
+            "course_name": course_name,
             "session_id": session_id,
             "answer": answer,
             "sources": [

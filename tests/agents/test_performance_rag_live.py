@@ -10,7 +10,7 @@ def test_live_rag_retrieval_and_performance_diagnosis():
     )
 
     # Verify actual retrieval from the existing ChromaDB collection.
-    course_context = build_course_context(query)
+    course_context = build_course_context(query, course_id="3ce7921b-cb0f-476f-b7d4-de62fc55dd12")
 
     assert course_context, (
         "No course context was retrieved. Check the ChromaDB collection "
@@ -25,7 +25,8 @@ def test_live_rag_retrieval_and_performance_diagnosis():
 
     result = agent.analyze(
         student_id="23bcs030",
-        subject_id="agentic_ai",
+        course_name="Introduction to Agentic AI",
+        course_id="3ce7921b-cb0f-476f-b7d4-de62fc55dd12",
         interactions=[
             {
                 "role": "user",
@@ -42,7 +43,7 @@ def test_live_rag_retrieval_and_performance_diagnosis():
     print(result.get("evidence_interpretation"))
 
     assert result["student_id"] == "23bcs030"
-    assert result["subject_id"] == "agentic_ai"
+    assert result["course_name"] == "Introduction to Agentic AI"
     assert isinstance(result["diagnosis"], dict)
     assert result["diagnosis"]["concepts"]
     assert result.get("evidence_interpretation", {}).get("evidence_analysis")

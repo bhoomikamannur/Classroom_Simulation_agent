@@ -110,7 +110,7 @@ Return ONLY valid JSON.
 Analyze every substantive student statement separately. 
 Assign each statement to the most relevant specific course concept from the course reference. 
 For example, if the student discusses Planning and Memory, keep them as separate concepts. 
-Do not use the subject ID as the concept name. 
+Do not use the course name as the concept name. 
 Tutor statements provide context but are not evidence of student understanding. 
 Do not invent concepts that are unsupported by the conversation or course reference.
 
@@ -483,6 +483,7 @@ class PerformanceAgent:
             return {
                 "concept": "",
                 "evidence_analysis": [],
+                "parse_status": "invalid",
             }
 
         cleaned = response.strip()
@@ -518,6 +519,7 @@ class PerformanceAgent:
                 return {
                     "concept": "",
                     "evidence_analysis": [],
+                    "parse_status": "invalid",
                 }
 
             try:
@@ -527,12 +529,14 @@ class PerformanceAgent:
                 return {
                     "concept": "",
                     "evidence_analysis": [],
+                    "parse_status": "invalid",
                 }
 
         if not isinstance(data, dict):
             return {
                 "concept": "",
                 "evidence_analysis": [],
+                "parse_status": "invalid",
             }
 
         # ------------------------------------------------------------
@@ -652,6 +656,7 @@ class PerformanceAgent:
         return {
             "concept": concept,
             "evidence_analysis": validated_analysis,
+            "parse_status": "valid" if validated_analysis else "empty_evidence",
         }
 
     # ================================================================
@@ -788,7 +793,7 @@ class PerformanceAgent:
         default_concept = interpretation.get("concept", "")
         if not isinstance(default_concept, str):
             default_concept = str(default_concept)
-        default_concept = default_concept.strip() or "Unknown"
+        default_concept = default_concept.strip()
 
         evidence_analysis = interpretation.get(
             "evidence_analysis", []
@@ -807,12 +812,24 @@ class PerformanceAgent:
             if not isinstance(concept, str):
                 concept = str(concept)
             concept = concept.strip() or default_concept
+            if not concept or concept.lower() == "unknown":
+                continue
 
             grouped_evidence.setdefault(concept, []).append(item)
 
-        # Preserve a diagnosis even when there is no usable evidence.
+        # Never manufacture a concept when extraction returned no evidence.
         if not grouped_evidence:
-            grouped_evidence[default_concept] = []
+            return {
+                "concepts": [],
+                "strengths": [],
+                "weaknesses": [],
+                "overall_observation": (
+                    "No usable concept-specific learning evidence could be "
+                    "extracted from the retrieved student interactions. "
+                    "The analysis may need to be retried or reviewed."
+                ),
+                "confidence": "low",
+            }
 
         concept_results = []
         strengths = []
@@ -934,9 +951,10 @@ class PerformanceAgent:
     def analyze(
         self,
         student_id: str,
-        subject_id: str,
+        course_name: str,
         interactions: list[dict[str, str]],
         course_context: str | None = None,
+        course_id: str | None = None,
     ) -> dict[str, Any]:
 
         # ------------------------------------------------------------
@@ -951,7 +969,8 @@ class PerformanceAgent:
 
             return {
                 "student_id": student_id,
-                "subject_id": subject_id,
+                "course_id": course_id,
+                "course_name": course_name,
                 "diagnosis": {
                     "concepts": [],
                     "strengths": [],
@@ -965,16 +984,16 @@ class PerformanceAgent:
         # STEP 2 — Course context
         # ------------------------------------------------------------
 
-        if not course_context:
+        if not course_context and course_id:
             student_query = "\n".join(
-                item.get("content", "").strip()
-                for item in interactions
+                item.get("content", "").strip()[:500]
+                for item in interactions[-20:]
                 if item.get("role", "").lower() == "user"
                 and item.get("content", "").strip()
-            )
+            )[:5000]
 
             try:
-                course_context = build_course_context(student_query)
+                course_context = build_course_context(student_query, course_id=course_id)
             except Exception:
                 # Retrieval failure must not crash diagnosis.
                 # Without course material, the LLM must not use
@@ -998,7 +1017,11 @@ class PerformanceAgent:
         student_evidence = []
         tutor_context = []
 
-        for item in interactions:
+        # Bound the LLM prompt independently of the database history limit.
+        # The full history is still used by the deterministic evidence check;
+        # only the most recent substantive context is sent to Ollama.
+        ordered_interactions = interactions[-40:]
+        for item in ordered_interactions:
 
             role = item.get(
                 "role",
@@ -1018,7 +1041,7 @@ class PerformanceAgent:
                 student_evidence.append(
                     f"[Student response "
                     f"{len(student_evidence) + 1}]\n"
-                    f"{content}"
+                    f"{content[:1200]}"
                 )
 
             elif role == "assistant":
@@ -1026,16 +1049,11 @@ class PerformanceAgent:
                 tutor_context.append(
                     f"[Tutor response "
                     f"{len(tutor_context) + 1}]\n"
-                    f"{content}"
+                    f"{content[:700]}"
                 )
 
-        student_evidence_text = "\n\n".join(
-            student_evidence
-        )
-
-        tutor_context_text = "\n\n".join(
-            tutor_context
-        )
+        student_evidence_text = "\n\n".join(student_evidence[-20:])[:9000]
+        tutor_context_text = "\n\n".join(tutor_context[-12:])[:5000]
 
         if not tutor_context_text:
             tutor_context_text = (
@@ -1049,8 +1067,8 @@ class PerformanceAgent:
         prompt = f"""
 {PERFORMANCE_INSTRUCTIONS}
 
-SUBJECT:
-{subject_id}
+COURSE NAME:
+{course_name}
 
 COURSE REFERENCE:
 {course_context}
@@ -1098,7 +1116,8 @@ Return ONLY the required JSON.
 
         return {
             "student_id": student_id,
-            "subject_id": subject_id,
+            "course_id": course_id,
+            "course_name": course_name,
             "diagnosis": diagnosis,
             "evidence_interpretation": interpretation,
         }

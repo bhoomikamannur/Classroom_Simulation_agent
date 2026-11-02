@@ -1,0 +1,4 @@
+assessment,weight,max_marks,pass_percentage,missing_marks_policy
+Assignment 1,30,10,40,exclude
+Assignment 2,30,10,40,exclude
+Final Exam,40,100,40,exclude

@@ -13,8 +13,9 @@ def test_performance_agent_uses_retrieved_course_context(monkeypatch):
     retrieval_calls = []
     llm_prompts = []
 
-    def fake_build_course_context(query):
+    def fake_build_course_context(query, course_id):
         retrieval_calls.append(query)
+        assert course_id == "course-1"
         return retrieved_context
 
     def fake_generate(prompt):
@@ -49,7 +50,8 @@ def test_performance_agent_uses_retrieved_course_context(monkeypatch):
 
     result = agent.analyze(
         student_id="23bcs030",
-        subject_id="agentic_ai",
+        course_name="Agentic AI",
+        course_id="course-1",
         interactions=[
             {
                 "role": "user",
@@ -70,13 +72,13 @@ def test_performance_agent_uses_retrieved_course_context(monkeypatch):
 
     # The Performance Agent must produce its normal result structure.
     assert result["student_id"] == "23bcs030"
-    assert result["subject_id"] == "agentic_ai"
+    assert result["course_name"] == "Agentic AI"
     assert result["diagnosis"]["concepts"][0]["understanding"] == "understood"
     assert result["evidence_interpretation"]["concept"] == "Planning"
 
 
 def test_explicit_course_context_skips_retrieval(monkeypatch):
-    def unexpected_retrieval(query):
+    def unexpected_retrieval(query, course_id):
         raise AssertionError(
             "RAG should not run when course_context is explicitly supplied."
         )
@@ -111,7 +113,8 @@ def test_explicit_course_context_skips_retrieval(monkeypatch):
 
     result = PerformanceAgent().analyze(
         student_id="23bcs030",
-        subject_id="agentic_ai",
+        course_name="Agentic AI",
+        course_id="course-1",
         interactions=[
             {
                 "role": "user",

@@ -3,8 +3,9 @@ import backend.app.rag.course_context as context_module
 
 
 def test_build_course_context_formats_retrieved_chunks(monkeypatch):
-    def fake_retrieve(query, top_k=5, relevance_threshold=0.85):
+    def fake_retrieve(query, course_id, top_k=5, relevance_threshold=0.85):
         assert query == "Explain planning"
+        assert course_id == "course-1"
         assert top_k == 5
         assert relevance_threshold == 0.85
 
@@ -21,7 +22,7 @@ def test_build_course_context_formats_retrieved_chunks(monkeypatch):
 
     monkeypatch.setattr(context_module, "retrieve", fake_retrieve)
 
-    result = context_module.build_course_context("Explain planning")
+    result = context_module.build_course_context("Explain planning", course_id="course-1")
 
     assert result is not None
     assert "Planning breaks a goal into smaller actions." in result
@@ -32,7 +33,7 @@ def test_build_course_context_formats_retrieved_chunks(monkeypatch):
 def test_build_course_context_returns_none_when_no_results(monkeypatch):
     monkeypatch.setattr(context_module, "retrieve", lambda **kwargs: [])
 
-    result = context_module.build_course_context("Explain planning")
+    result = context_module.build_course_context("Explain planning", course_id="course-1")
 
     assert result is None
 
@@ -50,10 +51,10 @@ def test_build_course_context_skips_empty_text(monkeypatch):
         ],
     )
 
-    result = context_module.build_course_context("Explain planning")
+    result = context_module.build_course_context("Explain planning", course_id="course-1")
 
     assert result is None
 
 
 def test_build_course_context_returns_none_for_empty_query():
-    assert context_module.build_course_context("   ") is None
+    assert context_module.build_course_context("   ", course_id="course-1") is None

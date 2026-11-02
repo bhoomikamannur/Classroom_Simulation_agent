@@ -11,7 +11,7 @@ def test_insufficient_evidence_recommends_more_evidence(monkeypatch):
 
     performance_result = {
         "student_id": "23bcs030",
-        "subject_id": "agentic_ai",
+        "course_name": "agentic_ai",
         "diagnosis": {
             "concepts": [
                 {
@@ -38,7 +38,7 @@ def test_insufficient_evidence_recommends_more_evidence(monkeypatch):
 
     mock_response = {
         "student_id": "23bcs030",
-        "subject_id": "agentic_ai",
+        "course_name": "agentic_ai",
         "intervention": {
             "priority": "low",
             "objective": "Gather enough evidence to assess understanding of planning.",
@@ -65,7 +65,7 @@ def test_insufficient_evidence_recommends_more_evidence(monkeypatch):
 
     # The agent must preserve the input identity.
     assert result["student_id"] == "23bcs030"
-    assert result["subject_id"] == "agentic_ai"
+    assert result["course_name"] == "agentic_ai"
 
     intervention = result["intervention"]
     teacher_insight = result["teacher_insight"]

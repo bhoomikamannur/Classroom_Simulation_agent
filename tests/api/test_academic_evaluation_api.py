@@ -7,11 +7,8 @@ from backend.app.api.academic_evaluation import (
 )
 from backend.app.main import app
 
-
-client = TestClient(app)
-
-
-def test_upload_marks_returns_evaluation_results(monkeypatch):
+def test_upload_marks_returns_evaluation_results(professor_client, monkeypatch):
+    client = professor_client
     def fake_evaluate_marks_file(file_path, course_id, student_id_column=None):
         assert course_id == "CS_TEST_101"
         return {
@@ -51,7 +48,8 @@ def test_upload_marks_returns_evaluation_results(monkeypatch):
     assert result["student_results"][0]["weighted_percentage"] == 75.0
 
 
-def test_upload_marks_rejects_missing_course_policy(monkeypatch):
+def test_upload_marks_rejects_missing_course_policy(professor_client, monkeypatch):
+    client = professor_client
     def fake_evaluate_marks_file(file_path, course_id, student_id_column=None):
         raise ValueError(
             f"No academic grading policy exists for course '{course_id}'."
@@ -78,7 +76,8 @@ def test_upload_marks_rejects_missing_course_policy(monkeypatch):
     assert "No academic grading policy exists" in response.json()["detail"]
 
 
-def test_upload_marks_rejects_unsupported_file_type():
+def test_upload_marks_rejects_unsupported_file_type(professor_client):
+    client = professor_client
     response = client.post(
         "/academic-evaluation/upload",
         data={"course_id": "CS_TEST_101"},
@@ -95,7 +94,8 @@ def test_upload_marks_rejects_unsupported_file_type():
     assert "Only CSV and XLSX" in response.json()["detail"]
 
 
-def test_upload_marks_rejects_empty_file():
+def test_upload_marks_rejects_empty_file(professor_client):
+    client = professor_client
     response = client.post(
         "/academic-evaluation/upload",
         data={"course_id": "CS_TEST_101"},
