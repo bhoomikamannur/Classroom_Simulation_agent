@@ -101,3 +101,64 @@ def analyze_and_recommend(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+class IncrementalAnalysisRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    roll_number: str = Field(min_length=3, max_length=20)
+    course_id: str = Field(min_length=1)
+
+
+def _resolve_enrolled_student(roll_number: str, course_id: str) -> tuple[dict, str]:
+    student = get_mongodb_database()["users"].find_one(
+        {"roll_number": roll_number.strip().lower(), "role": "student", "is_active": True},
+        {"_id": 0, "user_id": 1, "roll_number": 1},
+    )
+    if student is None:
+        raise HTTPException(status_code=404, detail="No active student found with that roll number.")
+    enrollment = get_mongodb_database()["course_enrollments"].find_one({
+        "course_id": course_id,
+        "student_id": student["user_id"],
+        "status": "active",
+    }, {"_id": 1})
+    if enrollment is None:
+        raise HTTPException(status_code=404, detail="Student is not enrolled in this course.")
+    return student, student["user_id"]
+
+
+@router.get("/status")
+def incremental_analysis_status(
+    roll_number: str,
+    course_id: str,
+    current_user: dict = Depends(require_role("professor")),
+) -> dict[str, Any]:
+    """Return pending activity and the saved concept-wise learning profile."""
+    get_accessible_course(course_id, current_user)
+    student, student_id = _resolve_enrolled_student(roll_number, course_id)
+    from backend.app.services.incremental_performance import get_analysis_status
+    result = get_analysis_status(student_id, course_id)
+    result["roll_number"] = student.get("roll_number")
+    return result
+
+
+@router.post("/reanalyze")
+def manually_reanalyze(
+    request: IncrementalAnalysisRequest,
+    current_user: dict = Depends(require_role("professor")),
+) -> dict[str, Any]:
+    """Professor-triggered analysis of pending evidence, even below threshold."""
+    course = get_accessible_course(request.course_id, current_user)
+    _, student_id = _resolve_enrolled_student(request.roll_number, request.course_id)
+    from backend.app.services.incremental_performance import process_pending_analysis
+    try:
+        return process_pending_analysis(
+            student_id=student_id,
+            course_id=request.course_id,
+            course_name=course.get("name", "Course"),
+            professor_id=course["professor_id"],
+            force=True,
+        )
+    except LLMTimeoutError as exc:
+        raise HTTPException(status_code=504, detail=f"Performance analysis timed out: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Could not complete incremental analysis: {exc}") from exc

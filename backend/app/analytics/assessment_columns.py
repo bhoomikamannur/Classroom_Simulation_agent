@@ -56,7 +56,7 @@ def normalize_marks_for_policy(
         base, is_max = _max_base(column)
         key = assessment_key(base)
         if key not in configured:
-            raise ValueError(f"Uploaded column '{column}' does not match an assessment in the saved grading policy.")
+            raise ValueError(f"Uploaded assessment columns must match the saved grading policy; column '{column}' is not configured.")
         assessment = configured[key]
         target = maximum_columns if is_max else marks_columns
         if assessment in target:

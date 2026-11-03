@@ -7,6 +7,7 @@ import { apiFetch } from '../services/api'
 
 type Course = { course_id: string; name: string; description: string; professor_id: string; enrolled_at?: string }
 type Material = { document_id: string; filename: string; file_type: string; file_size: number; status: string; uploaded_at: string; pages_or_slides_extracted?: number; chunk_count?: number }
+type StudentMarks = { course_id: string; assessments: Record<string, { name: string; marks: number | null; maximum_marks: number | null }> }
 type Props = {
   currentUser: AuthUser | null; onLogout: () => void; selectedCourseId: string; onSelectCourse: (id: string) => void
   savedChats: SavedTutorChat[]; activeChatId: string; chatMessages: ChatMessage[]; chatLoading: boolean; chatError: string; chatInput: string
@@ -21,6 +22,7 @@ export function StudentDashboard(props: Props) {
   const { currentUser, onLogout, selectedCourseId, onSelectCourse, savedChats, activeChatId, chatMessages, chatLoading, chatError, chatInput, onStartNewChat, onOpenChat, onChatInputChange, onSendMessage } = props
   const [courses, setCourses] = useState<Course[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
+  const [studentMarks, setStudentMarks] = useState<StudentMarks | null>(null)
   const [enrollmentCode, setEnrollmentCode] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -35,9 +37,10 @@ export function StudentDashboard(props: Props) {
   }
   useEffect(() => { void loadCourses() }, [])
   useEffect(() => {
-    if (!selectedCourseId) { setMaterials([]); return }
+    if (!selectedCourseId) { setMaterials([]); setStudentMarks(null); return }
     let active = true
     apiFetch(`/api/documents/course/${encodeURIComponent(selectedCourseId)}`).then((r) => read<{ documents: Material[] }>(r)).then((data) => { if (active) setMaterials(data.documents) }).catch((e) => { if (active) setError(e instanceof Error ? e.message : 'Could not load course materials.') })
+    apiFetch(`/api/academic-evaluation/student/${encodeURIComponent(selectedCourseId)}`).then(read<StudentMarks>).then((data) => { if (active) setStudentMarks(data) }).catch((e) => { if (active) setStudentMarks(null); if (active) setError(e instanceof Error ? e.message : 'Could not load your marks.') })
     return () => { active = false }
   }, [selectedCourseId])
   async function joinCourse(event: React.FormEvent) {
@@ -59,7 +62,11 @@ export function StudentDashboard(props: Props) {
       <form className="join-course-form" onSubmit={joinCourse}><div><strong>Join a course</strong><span>Enter the enrollment code provided by your professor.</span></div><input value={enrollmentCode} onChange={(e) => setEnrollmentCode(e.target.value.toUpperCase())} placeholder="Enrollment code" aria-label="Enrollment code"/><button className="primary-button" disabled={busy || !enrollmentCode.trim()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>} Join course</button></form>
     </> : selectedCourse && <>
       <button className="secondary-button course-back" onClick={() => setView('courses')}><ArrowLeft size={16}/> All courses</button>
-      <div className="course-feature-grid"><article className="course-feature-card"><span className="course-feature-icon"><FileText size={22}/></span><h3>Course materials</h3><p>Lecture notes and presentations shared by your professor.</p><strong>{materials.length} resources</strong></article><article className="course-feature-card"><span className="course-feature-icon"><ClipboardList size={22}/></span><h3>My test marks</h3><p>Assessment results will appear here when your professor publishes them.</p><strong>Assessment records</strong></article><article className="course-feature-card"><span className="course-feature-icon"><Bot size={22}/></span><h3>AI Tutor</h3><p>Ask questions grounded in this course's uploaded materials.</p><button className="primary-button" onClick={() => setView('chat')}><MessageCircle size={16}/> Open Tutor Chat</button></article></div>
+      <div className="course-feature-grid"><article className="course-feature-card"><span className="course-feature-icon"><FileText size={22}/></span><h3>Course materials</h3><p>Lecture notes and presentations shared by your professor.</p><strong>{materials.length} resources</strong></article><article className="course-feature-card"><span className="course-feature-icon"><ClipboardList size={22}/></span><h3>My test marks</h3><p>Your uploaded assessment marks.</p><strong>{Object.keys(studentMarks?.assessments ?? {}).length} assessments recorded</strong></article><article className="course-feature-card"><span className="course-feature-icon"><Bot size={22}/></span><h3>AI Tutor</h3><p>Ask questions grounded in this course's uploaded materials.</p><button className="primary-button" onClick={() => setView('chat')}><MessageCircle size={16}/> Open Tutor Chat</button></article></div>
+
+      <section className="course-materials-panel"><div className="student-section-heading"><div><h2>My academic record</h2><p>Only your own assessment marks are shown here. Missing marks are displayed as —.</p></div></div>
+        {studentMarks && Object.keys(studentMarks.assessments).length ? <div className="academic-table-wrap"><table className="academic-table"><thead><tr><th>Assessment</th><th>Marks</th><th>Maximum</th></tr></thead><tbody>{Object.entries(studentMarks.assessments).map(([key, item])=><tr key={key}><td>{item.name}</td><td>{item.marks ?? '—'}</td><td>{item.maximum_marks ?? '—'}</td></tr>)}</tbody></table></div> : <p>No assessment marks have been uploaded for you yet.</p>}
+      </section>
       <section className="course-materials-panel"><div className="student-section-heading"><div><h2>Learning materials</h2><p>Resources available for this course.</p></div><button className="secondary-button" onClick={() => { setMaterials([]); void apiFetch(`/api/documents/course/${encodeURIComponent(selectedCourseId)}`).then((r) => read<{documents: Material[]}>(r)).then((d) => setMaterials(d.documents)).catch((e) => setError(e.message)) }}><RefreshCw size={15}/> Refresh</button></div>
       {materials.length ? materials.map((item) => <div className="student-material-row" key={item.document_id}><FileText size={20}/><div><strong>{item.filename}</strong><small>{item.file_type.toUpperCase()} · {item.pages_or_slides_extracted ?? 0} pages/slides · {item.chunk_count ?? 0} indexed sections</small></div><span className={`material-status ${item.status}`}>{item.status}</span></div>) : <div className="empty-materials">No course materials have been uploaded yet.</div>}</section>
     </>}

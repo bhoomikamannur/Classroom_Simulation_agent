@@ -22,6 +22,7 @@ def get_policy_collection() -> Collection:
 def create_policy(policy: dict[str, Any]) -> dict[str, Any]:
     """Validate and persist a new course policy."""
     validated = validate_academic_policy(policy)
+    validated["version"] = 1
     collection = get_policy_collection()
 
     try:
@@ -57,8 +58,13 @@ def update_policy(
     candidate = dict(policy)
     candidate["course_id"] = course_id.strip()
     validated = validate_academic_policy(candidate)
+    collection = get_policy_collection()
+    existing = collection.find_one({"course_id": course_id.strip()}, {"version": 1})
+    if existing is None:
+        return None
+    validated["version"] = int(existing.get("version", 1)) + 1
 
-    result = get_policy_collection().replace_one(
+    result = collection.replace_one(
         {"course_id": course_id.strip()},
         validated,
         upsert=False,

@@ -2190,3 +2190,54 @@
 .academic-policy-import p { grid-column:1/-1; margin:0; color:#7c859a; font-size:11px; }
 @media (max-width:850px) { .dashboard { grid-template-columns:180px minmax(0,1fr); } .professor-create-course .create-course-form { grid-template-columns:1fr; } }
 @media (max-width:650px) { .dashboard { display:flex; flex-direction:column; } .dashboard-sidebar { position:relative; width:100%; height:auto; flex-direction:row; flex-wrap:wrap; padding:12px; } .sidebar-bottom { display:none; } .dashboard-main { width:100%; } .professor-course-home { width:calc(100% - 28px); margin:28px auto; } .professor-home-header { flex-direction:column; } .academic-policy-import { grid-template-columns:1fr; } }
+
+/* Incremental Performance Agent controls and saved learning profile. */
+.performance-tool .performance-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.performance-tool .performance-result {
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid #e6e9f2;
+  border-radius: 12px;
+  background: #fafbff;
+}
+
+.performance-tool .performance-result h3,
+.performance-tool .performance-result h4 {
+  color: #202b43;
+}
+
+.performance-tool .performance-result li {
+  margin: 7px 0;
+  color: #626d82;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .performance-tool .performance-actions {
+    grid-column: auto;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .performance-tool .performance-actions button {
+    width: 100%;
+  }
+}
+
+/* Marks-only academic workspace */
+.academic-action-row { display:flex; flex-wrap:wrap; gap:10px; margin-top:12px; }
+.academic-expand-button { margin-top:14px; }
+.academic-mark-cell { display:inline-flex; align-items:center; gap:5px; border:0; background:transparent; color:inherit; cursor:pointer; padding:5px 7px; border-radius:6px; }
+.academic-mark-cell:hover { background:#f0efff; color:#5548cf; }
+.academic-mark-cell:disabled { opacity:.6; cursor:wait; }
+.academic-mark-maximum { color:#8992a7; font-size:10px; }
+.academic-upload-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid #e7eaf2; }
+.academic-upload-item:last-child { border-bottom:0; }

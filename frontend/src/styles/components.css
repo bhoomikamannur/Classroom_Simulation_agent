@@ -8,3 +8,21 @@
 .profile-menu-details { display: grid; gap: 4px; padding: 10px; overflow-wrap: anywhere; }
 .profile-menu-popover button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px; border: 0; border-radius: 8px; background: transparent; color: #dc2626; text-align: left; cursor: pointer; }
 .profile-menu-popover button:hover { background: rgba(220,38,38,.08); }
+
+/* Academic marks workspace: editable register and upload history */
+.academic-upload-list{margin-top:18px;border-top:1px solid var(--border-color,#e2e8f0);padding-top:14px}
+.academic-upload-list h4{margin:0 0 10px;font-size:14px}
+.academic-upload-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-color,#e2e8f0)}
+.academic-upload-item strong{font-size:13px;overflow-wrap:anywhere}
+.academic-upload-item p{margin:4px 0 0;font-size:11px;opacity:.72}
+.academic-mark-cell{border:0;background:transparent;color:inherit;padding:5px 8px;border-radius:6px;min-width:36px;cursor:pointer;font:inherit}
+.academic-mark-cell:hover{background:rgba(99,102,241,.12);outline:1px solid rgba(99,102,241,.35)}
+.academic-summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px;margin-top:16px}
+.academic-summary-grid>div{display:grid;gap:4px;padding:12px;border:1px solid var(--border-color,#e2e8f0);border-radius:10px}
+.academic-summary-grid strong{font-size:20px}
+.academic-summary-grid span{font-size:11px;opacity:.72}
+.academic-descriptive-summary{margin-top:16px;padding-top:14px;border-top:1px solid var(--border-color,#e2e8f0)}
+.academic-descriptive-summary h4{margin:0 0 10px;font-size:14px}
+.academic-analysis-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
+.academic-analysis-list>div{display:flex;justify-content:space-between;gap:8px;padding:9px 10px;background:rgba(100,116,139,.06);border-radius:8px;font-size:12px}
+.academic-descriptive-summary p{font-size:12px;opacity:.75;margin:10px 0 0}

@@ -1,8 +1,10 @@
 
 from datetime import datetime, timezone
 from typing import Any
+import re
 
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
+from pymongo.errors import DuplicateKeyError
 from pymongo.collection import Collection
 
 from backend.app.database.mongodb import get_mongodb_database
@@ -19,6 +21,40 @@ def _sessions() -> Collection:
 
 def _interactions() -> Collection:
     return get_mongodb_database()["learning_interactions"]
+
+
+def _analysis_states() -> Collection:
+    return get_mongodb_database()["learning_analysis_state"]
+
+
+def is_meaningful_student_response(content: str) -> bool:
+    """Conservative deterministic pre-filter; semantic correctness is not judged here."""
+    text = re.sub(r"\s+", " ", (content or "").strip())
+    if len(text) < 25 or len(text.split()) < 5:
+        return False
+    normalized = text.lower().strip(" .!?\t")
+    noise = {
+        "hi", "hello", "hey", "thanks", "thank you", "ok", "okay",
+        "yes", "no", "got it", "understood", "good morning", "good afternoon",
+    }
+    if normalized in noise:
+        return False
+    uncertainty = (
+        "i don't understand", "i do not understand", "i'm confused",
+        "i am confused", "i don't get it", "i do not get it",
+        "can you explain", "can you clarify", "what is", "what are",
+        "how does this work",
+    )
+    if normalized.startswith(uncertainty) and normalized.count(" ") < 9:
+        return False
+    if text.endswith("?") and not any(
+        marker in normalized for marker in (
+            "so ", "does that mean", "is it correct that", "am i right that",
+            "basically", "is that why",
+        )
+    ):
+        return False
+    return True
 
 
 def ensure_learning_indexes() -> None:
@@ -57,6 +93,15 @@ def ensure_learning_indexes() -> None:
             ("created_at", DESCENDING),
         ],
         name="student_course_recent_interactions",
+    )
+    _interactions().create_index(
+        [("student_id", ASCENDING), ("course_id", ASCENDING), ("analysis_status", ASCENDING), ("meaningful_candidate", ASCENDING)],
+        name="student_course_pending_evidence",
+    )
+    _analysis_states().create_index(
+        [("student_id", ASCENDING), ("course_id", ASCENDING)],
+        unique=True,
+        name="unique_student_course_analysis_state",
     )
 
 
@@ -168,6 +213,7 @@ def save_interaction(
             "No active session exists for this student, course and session ID."
         )
 
+    meaningful_candidate = role == "user" and is_meaningful_student_response(content)
     interaction = {
         **identity,
         "professor_id": session.get("professor_id"),
@@ -175,9 +221,34 @@ def save_interaction(
         "role": role,
         "content": content,
         "created_at": _utc_now(),
+        "meaningful_candidate": meaningful_candidate,
+        **({"analysis_status": "pending"} if meaningful_candidate else {}),
     }
 
-    _interactions().insert_one(interaction)
+    inserted = _interactions().insert_one(interaction)
+    interaction["_id"] = inserted.inserted_id
+    if meaningful_candidate:
+        state_identity = {"student_id": student_id, "course_id": course_id}
+        state_update = {
+            "$setOnInsert": {
+                **state_identity,
+                "professor_id": session.get("professor_id"),
+                "created_at": _utc_now(),
+                "last_analyzed_at": None,
+                "last_analysis_status": "not_yet_analyzed",
+            },
+            "$inc": {"pending_count": 1},
+            "$set": {"updated_at": _utc_now()},
+        }
+        try:
+            _analysis_states().update_one(state_identity, state_update, upsert=True)
+        except DuplicateKeyError:
+            # Concurrent first messages may race to create this student-course
+            # state document; the unique index makes the retry safe.
+            _analysis_states().update_one(state_identity, {
+                "$inc": {"pending_count": 1},
+                "$set": {"updated_at": _utc_now()},
+            })
 
     return {**interaction}
 

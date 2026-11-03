@@ -1,112 +1,94 @@
 from io import BytesIO
 
-from fastapi.testclient import TestClient
 
-from backend.app.api.academic_evaluation import (
-    evaluate_marks_file,
-)
-from backend.app.main import app
-
-def test_upload_marks_returns_evaluation_results(professor_client, monkeypatch):
-    client = professor_client
-    def fake_evaluate_marks_file(file_path, course_id, student_id_column=None):
-        assert course_id == "CS_TEST_101"
-        return {
-            "course_id": course_id,
-            "number_of_students": 1,
-            "grading_policy": {"course_id": course_id},
-            "student_results": [
-                {
-                    "student_id": "S001",
-                    "weighted_percentage": 75.0,
-                    "pass_status": "pass",
-                }
-            ],
-        }
-
+def _allow_course(monkeypatch):
     monkeypatch.setattr(
-        "backend.app.api.academic_evaluation.evaluate_marks_file",
-        fake_evaluate_marks_file,
+        "backend.app.api.academic_evaluation.get_accessible_course",
+        lambda course_id, user: {"course_id": course_id},
     )
 
-    response = client.post(
+
+def test_upload_marks_merges_without_grading_policy(professor_client, monkeypatch):
+    _allow_course(monkeypatch)
+    def fake_merge(course_id, frame, uploaded_by, filename=None):
+        assert course_id == "CS_TEST_101"
+        assert list(frame.columns) == ["student_id", "quiz"]
+        return {"course_id": course_id, "students_updated": 1, "message": "merged"}
+    monkeypatch.setattr("backend.app.api.academic_evaluation.merge_marks", fake_merge)
+    response = professor_client.post(
         "/academic-evaluation/upload",
         data={"course_id": "CS_TEST_101"},
-        files={
-            "file": (
-                "marks.csv",
-                BytesIO(b"student_id,quiz\nS001,8"),
-                "text/csv",
-            )
-        },
+        files={"file": ("marks.csv", BytesIO(b"student_id,quiz\nS001,8"), "text/csv")},
     )
-
     assert response.status_code == 200
-    result = response.json()
-    assert result["course_id"] == "CS_TEST_101"
-    assert result["number_of_students"] == 1
-    assert result["student_results"][0]["weighted_percentage"] == 75.0
-
-
-def test_upload_marks_rejects_missing_course_policy(professor_client, monkeypatch):
-    client = professor_client
-    def fake_evaluate_marks_file(file_path, course_id, student_id_column=None):
-        raise ValueError(
-            f"No academic grading policy exists for course '{course_id}'."
-        )
-
-    monkeypatch.setattr(
-        "backend.app.api.academic_evaluation.evaluate_marks_file",
-        fake_evaluate_marks_file,
-    )
-
-    response = client.post(
-        "/academic-evaluation/upload",
-        data={"course_id": "UNKNOWN_COURSE"},
-        files={
-            "file": (
-                "marks.csv",
-                BytesIO(b"student_id,quiz\nS001,8"),
-                "text/csv",
-            )
-        },
-    )
-
-    assert response.status_code == 404
-    assert "No academic grading policy exists" in response.json()["detail"]
+    assert response.json()["students_updated"] == 1
 
 
 def test_upload_marks_rejects_unsupported_file_type(professor_client):
-    client = professor_client
-    response = client.post(
+    response = professor_client.post(
         "/academic-evaluation/upload",
         data={"course_id": "CS_TEST_101"},
-        files={
-            "file": (
-                "marks.txt",
-                BytesIO(b"sample"),
-                "text/plain",
-            )
-        },
+        files={"file": ("marks.txt", BytesIO(b"sample"), "text/plain")},
     )
-
     assert response.status_code == 400
     assert "Only CSV and XLSX" in response.json()["detail"]
 
 
-def test_upload_marks_rejects_empty_file(professor_client):
-    client = professor_client
-    response = client.post(
+def test_upload_marks_rejects_empty_file(professor_client, monkeypatch):
+    _allow_course(monkeypatch)
+    response = professor_client.post(
         "/academic-evaluation/upload",
         data={"course_id": "CS_TEST_101"},
-        files={
-            "file": (
-                "marks.csv",
-                BytesIO(b""),
-                "text/csv",
-            )
-        },
+        files={"file": ("marks.csv", BytesIO(b""), "text/csv")},
     )
-
     assert response.status_code == 400
     assert "empty" in response.json()["detail"].lower()
+
+
+def test_register_returns_persisted_marks(professor_client, monkeypatch):
+    _allow_course(monkeypatch)
+    monkeypatch.setattr(
+        "backend.app.api.academic_evaluation.get_marks_register",
+        lambda course_id: {"course_id": course_id, "number_of_students": 1, "assessment_names": {"quiz": "Quiz"}, "students": [{"student_id": "S001", "assessments": {"quiz": 8}}]},
+    )
+    response = professor_client.get("/academic-evaluation/register/CS_TEST_101")
+    assert response.status_code == 200
+    assert response.json()["students"][0]["assessments"]["quiz"] == 8
+
+
+def test_uploads_endpoint_lists_course_files(professor_client, monkeypatch):
+    _allow_course(monkeypatch)
+    monkeypatch.setattr(
+        "backend.app.api.academic_evaluation.list_marks_uploads",
+        lambda course_id: {"course_id": course_id, "uploads": [{"upload_id": "u1", "filename": "quiz.csv"}], "total_uploads": 1},
+    )
+    response = professor_client.get("/academic-evaluation/uploads/CS_TEST_101")
+    assert response.status_code == 200
+    assert response.json()["uploads"][0]["filename"] == "quiz.csv"
+
+
+def test_delete_upload_endpoint(professor_client, monkeypatch):
+    _allow_course(monkeypatch)
+    monkeypatch.setattr(
+        "backend.app.api.academic_evaluation.delete_marks_upload",
+        lambda course_id, upload_id: {"upload_id": upload_id, "message": "deleted"},
+    )
+    response = professor_client.delete("/academic-evaluation/uploads/CS_TEST_101/u1")
+    assert response.status_code == 200
+    assert response.json()["upload_id"] == "u1"
+
+
+def test_edit_mark_endpoint(professor_client, monkeypatch):
+    _allow_course(monkeypatch)
+    monkeypatch.setattr(
+        "backend.app.api.academic_evaluation.edit_student_mark",
+        lambda course_id, student_identifier, assessment, marks: {"student_id": student_identifier, "assessment": assessment, "marks": marks},
+    )
+    response = professor_client.patch(
+        "/academic-evaluation/marks/CS_TEST_101",
+        json={"student_identifier": "23bcs001", "assessment": "quiz", "marks": 9},
+    )
+    assert response.status_code == 200
+    assert response.json()["marks"] == 9
+
+

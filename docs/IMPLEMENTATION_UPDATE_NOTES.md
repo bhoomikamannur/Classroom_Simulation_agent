@@ -25,3 +25,18 @@
 - Frontend TypeScript project build (`tsc -b`) completed successfully.
 - Vite bundling could not complete in this packaging environment because the uploaded Windows `node_modules` archive did not include a Linux Rolldown native binding. Reinstall dependencies on the target machine if the same issue appears.
 - Pytest could not be run in this packaging environment because `pymongo` is not installed here. Run the project tests in the project's configured virtual environment.
+
+## Incremental Performance Analysis implementation (November 2026)
+
+Implemented the first activity-based incremental analysis workflow:
+
+- Tracks meaningful student responses across all resumable chats per student-course.
+- Starts automatic background analysis at 10 pending responses, in batches of 10.
+- Uses only new student messages as evidence; tutor messages are excluded.
+- Persists concept evidence and cumulative student learning profiles.
+- Uses stable batch IDs, MongoDB locking, and a retry cooldown so a failed Ollama/parse attempt leaves evidence pending and does not double-count a successful batch.
+- Adds professor endpoints for activity/profile status and manual reanalysis.
+- Adds a persistent-misconception alert when a concept is classified as confused in separate learning sessions.
+- Extends the professor Performance panel to show pending activity, last analysis, concept trends, and open alerts.
+
+See `docs/INCREMENTAL_PERFORMANCE_ANALYSIS.md` for the collections and processing lifecycle.

@@ -1,764 +1,158 @@
-import { useState } from 'react'
-import { AlertCircle, FileText, Plus, X } from 'lucide-react'
-import type { AcademicAssessment, AcademicEvaluationResponse, ClassAnalyticsResponse } from '../../types'
+import { useEffect, useState } from 'react'
+import { AlertCircle, RefreshCw, Upload, Trash2, ChevronDown, ChevronUp, Pencil } from 'lucide-react'
 import { apiFetch } from '../../services/api'
 
+type RegisterStudent = {
+  student_id: string
+  display_id?: string
+  assessments: Record<string, number | null>
+  assessment_maximums?: Record<string, number | null>
+}
+type Register = {
+  course_id: string
+  number_of_students: number
+  assessment_names: Record<string, string>
+  students: RegisterStudent[]
+}
+type UploadRecord = {
+  upload_id: string
+  filename: string
+  uploaded_at: string
+  student_count: number
+  assessment_names: Record<string, string>
+}
+
+async function readJson<T>(response: Response): Promise<T> {
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Request failed.')
+  return data as T
+}
+
 export function AcademicEvaluationPanel({ courseId }: { courseId: string }) {
-  const [assessments, setAssessments] = useState<AcademicAssessment[]>([
-    { name: '', weight: '', maximum: '' },
-    { name: '', weight: '', maximum: '' },
-  ])
-  const [passPercentage, setPassPercentage] = useState('40')
-  const [missingPolicy, setMissingPolicy] =
-    useState<'exclude' | 'zero'>('exclude')
-  const [policyMessage, setPolicyMessage] = useState('')
-  const [policyLoading, setPolicyLoading] = useState(false)
-  const [policyFile, setPolicyFile] = useState<File | null>(null)
-  const [policyImportLoading, setPolicyImportLoading] = useState(false)
-
   const [marksFile, setMarksFile] = useState<File | null>(null)
-  const [evaluation, setEvaluation] =
-    useState<AcademicEvaluationResponse | null>(null)
-  
-  const [analytics, setAnalytics] =
-    useState<ClassAnalyticsResponse | null>(null)
-  const [analyticsLoading, setAnalyticsLoading] = useState(false)
-  const [analyticsError, setAnalyticsError] = useState('')
-  const [selectedAnalyticsStudent, setSelectedAnalyticsStudent] =
-    useState('')
-
-  const [selectedStudentId, setSelectedStudentId] = useState('')
-  const [uploadLoading, setUploadLoading] = useState(false)
+  const [register, setRegister] = useState<Register | null>(null)
+  const [uploads, setUploads] = useState<UploadRecord[]>([])
+  const [expanded, setExpanded] = useState(false)
+  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const visibleRows = expanded ? (register?.students ?? []) : (register?.students ?? []).slice(0, 10)
 
-  function updateAssessment(
-    index: number,
-    field: keyof AcademicAssessment,
-    value: string,
-  ) {
-    setAssessments((previous) =>
-      previous.map((assessment, i) =>
-        i === index ? { ...assessment, [field]: value } : assessment,
-      ),
-    )
+  async function refreshRegister() {
+    const data = await readJson<Register>(await apiFetch(`/api/academic-evaluation/register/${encodeURIComponent(courseId)}`))
+    setRegister(data)
   }
 
-
-  async function importPolicyFile() {
-    if (!courseId) { setError('Select a course first.'); return }
-    if (!policyFile) { setError('Choose a grading-policy CSV or XLSX file first.'); return }
-    if (!/\.(csv|xlsx)$/i.test(policyFile.name)) { setError('Only CSV and XLSX policy files are supported.'); return }
-    setPolicyImportLoading(true); setError(''); setPolicyMessage('')
-    const formData = new FormData()
-    formData.append('file', policyFile)
-    try {
-      const response = await apiFetch(`/api/academic-policies/import?course_id=${encodeURIComponent(courseId)}`, { method: 'POST', body: formData })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not import grading policy.')
-      setAssessments((data.assessments ?? []).map((item: { name: string; weight: number; maximum: number }) => ({ name: item.name, weight: String(item.weight), maximum: String(item.maximum) })))
-      setPassPercentage(String(data.pass_percentage ?? 40))
-      setMissingPolicy(data.missing_marks_policy === 'zero' ? 'zero' : 'exclude')
-      setPolicyMessage('Policy imported into the form. Review or edit the values, then save.')
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not import grading policy.') }
-    finally { setPolicyImportLoading(false) }
+  async function refreshUploads() {
+    const data = await readJson<{ uploads: UploadRecord[] }>(await apiFetch(`/api/academic-evaluation/uploads/${encodeURIComponent(courseId)}`))
+    setUploads(data.uploads ?? [])
   }
 
-  async function savePolicy() {
-    const id = courseId.trim()
-
-    if (!id) {
-      setError('Select a course first.')
-      return
-    }
-
-    const names = assessments.map((a) => a.name.trim())
-    const weights = assessments.map((a) => Number(a.weight))
-    const maximums = assessments.map((a) => Number(a.maximum))
-    const pass = Number(passPercentage)
-
-    if (
-      assessments.some(
-        (a) => !a.name.trim() || !a.weight.trim() || !a.maximum.trim(),
-      )
-    ) {
-      setError('Complete the name, weight, and maximum marks for every assessment.')
-      return
-    }
-
-    if (new Set(names).size !== names.length) {
-      setError('Assessment names must be unique.')
-      return
-    }
-
-    if (
-      weights.some((w) => !Number.isFinite(w) || w <= 0 || w > 100) ||
-      Math.abs(weights.reduce((sum, w) => sum + w, 0) - 100) > 0.000001
-    ) {
-      setError('Assessment weights must be positive and total exactly 100%.')
-      return
-    }
-
-    if (maximums.some((m) => !Number.isFinite(m) || m <= 0)) {
-      setError('Maximum marks must be greater than zero for every assessment.')
-      return
-    }
-
-    if (!Number.isFinite(pass) || pass < 0 || pass > 100) {
-      setError('Pass percentage must be between 0 and 100.')
-      return
-    }
-
-    const policy = {
-      course_id: id,
-      assessment_weights: Object.fromEntries(
-        names.map((name, i) => [name, weights[i]]),
-      ),
-      assessment_max_marks: Object.fromEntries(
-        names.map((name, i) => [name, maximums[i]]),
-      ),
-      pass_percentage: pass,
-      missing_marks_policy: missingPolicy,
-    }
-
-    setPolicyLoading(true)
+  async function refreshAll() {
     setError('')
-    setPolicyMessage('')
-    setEvaluation(null)
-
-    try {
-      const url = `/api/academic-policies/${encodeURIComponent(id)}`
-      const existing = await apiFetch(url)
-
-      let response: Response
-
-      if (existing.ok) {
-        response = await apiFetch(url, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            assessment_weights: policy.assessment_weights,
-            assessment_max_marks: policy.assessment_max_marks,
-            pass_percentage: policy.pass_percentage,
-            missing_marks_policy: policy.missing_marks_policy,
-          }),
-        })
-      } else if (existing.status === 404) {
-        response = await apiFetch('/api/academic-policies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(policy),
-        })
-      } else {
-        const data = await existing.json().catch(() => ({}))
-        throw new Error(data.detail || 'Could not check the existing policy.')
-      }
-
-      const data = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        throw new Error(data.detail || 'Could not save the grading policy.')
-      }
-
-      setPolicyMessage("Grading policy saved for the selected course.")
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Could not save the grading policy.',
-      )
-    } finally {
-      setPolicyLoading(false)
-    }
+    try { await Promise.all([refreshRegister(), refreshUploads()]) }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not load academic marks.') }
   }
+
+  useEffect(() => {
+    setRegister(null); setUploads([]); setError(''); setMessage(''); setExpanded(false)
+    if (courseId) void refreshAll()
+    // refreshAll is intentionally scoped to the selected course.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [courseId])
 
   async function uploadMarks() {
-    if (!courseId.trim()) {
-      setError('Enter the course ID.')
-      return
-    }
-
-    if (!marksFile) {
-      setError('Choose a CSV or XLSX marks file first.')
-      return
-    }
-
-    if (!/\.(csv|xlsx)$/i.test(marksFile.name)) {
-      setError('Only CSV and XLSX files are supported.')
-      return
-    }
-
-    setUploadLoading(true)
-    setError('')
-    setEvaluation(null)
-    setSelectedStudentId('')
-
-    const formData = new FormData()
-    formData.append('course_id', courseId.trim())
-    formData.append('file', marksFile)
-
+    if (!marksFile) return
+    setBusy('upload'); setError(''); setMessage('')
     try {
-      const response = await apiFetch('/api/academic-evaluation/upload', {
-        method: 'POST',
-        body: formData,
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data.detail === 'string'
-            ? data.detail
-            : 'Marks evaluation failed.',
-        )
-      }
-
-      const result = data as AcademicEvaluationResponse
-      setEvaluation(result)
-
-      if (result.student_results.length > 0) {
-        setSelectedStudentId(result.student_results[0].student_id)
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Could not evaluate the marks file.',
+      const body = new FormData()
+      body.append('course_id', courseId)
+      body.append('file', marksFile)
+      const result = await readJson<{ students_updated: number; assessment_names: Record<string, string>; message: string }>(
+        await apiFetch('/api/academic-evaluation/upload', { method: 'POST', body }),
       )
-    } finally {
-      setUploadLoading(false)
-    }
+      setMessage(`${result.message} ${result.students_updated} students updated; added/updated ${Object.values(result.assessment_names).join(', ')}.`)
+      setMarksFile(null)
+      const fileInput = document.getElementById('academic-marks-file') as HTMLInputElement | null
+      if (fileInput) fileInput.value = ''
+      await Promise.all([refreshRegister(), refreshUploads()])
+    } catch (e) { setError(e instanceof Error ? e.message : 'Marks upload failed.') }
+    finally { setBusy('') }
   }
 
-  async function analyzeClass() {
-    if (!courseId.trim()) {
-      setAnalyticsError('Select a course first.')
-      return
-    }
-
-    if (!marksFile) {
-      setAnalyticsError('Choose a CSV or XLSX file first.')
-      return
-    }
-
-    setAnalyticsLoading(true)
-    setAnalyticsError('')
-    setAnalytics(null)
-
-    const formData = new FormData()
-    formData.append('course_id', courseId.trim())
-    formData.append('file', marksFile)
-
+  async function deleteUpload(upload: UploadRecord) {
+    if (!window.confirm(`Delete ${upload.filename}? Marks that still come from this file will be removed or restored from an earlier upload.`)) return
+    setBusy(`delete:${upload.upload_id}`); setError(''); setMessage('')
     try {
-      const response = await apiFetch('/api/academic-evaluation/analyze', {
-        method: 'POST',
-        body: formData,
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(
-          typeof data.detail === 'string'
-            ? data.detail
-            : 'Class analytics failed.',
-        )
-      }
-
-      const result = data as ClassAnalyticsResponse
-      setAnalytics(result)
-
-      if (result.student_summaries.length > 0) {
-        setSelectedAnalyticsStudent(result.student_summaries[0].student_id)
-      }
-    } catch (err) {
-      setAnalyticsError(
-        err instanceof Error ? err.message : 'Could not analyze class performance.',
-      )
-    } finally {
-      setAnalyticsLoading(false)
-    }
+      const result = await readJson<{ message: string }>(await apiFetch(
+        `/api/academic-evaluation/uploads/${encodeURIComponent(courseId)}/${encodeURIComponent(upload.upload_id)}`,
+        { method: 'DELETE' },
+      ))
+      setMessage(result.message)
+      await Promise.all([refreshRegister(), refreshUploads()])
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not delete upload.') }
+    finally { setBusy('') }
   }
 
-  const selectedAnalyticsRecord = analytics?.student_summaries.find(
-    (student) => student.student_id === selectedAnalyticsStudent,
-  )
+  async function editMark(student: RegisterStudent, assessmentKey: string, current: number | null) {
+    const name = register?.assessment_names[assessmentKey] ?? assessmentKey
+    const entered = window.prompt(`Correct ${name} for ${student.display_id ?? student.student_id}. Leave blank to clear the mark.`, current == null ? '' : String(current))
+    if (entered === null) return
+    const value = entered.trim() === '' ? null : Number(entered)
+    if (value !== null && (!Number.isFinite(value) || value < 0)) { setError('Enter a valid non-negative mark.'); return }
+    setBusy('edit'); setError(''); setMessage('')
+    try {
+      await readJson(await apiFetch(`/api/academic-evaluation/marks/${encodeURIComponent(courseId)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_identifier: student.display_id ?? student.student_id, assessment: assessmentKey, marks: value }),
+      }))
+      setMessage('Mark updated successfully.')
+      await refreshRegister()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not update mark.') }
+    finally { setBusy('') }
+  }
 
-  const lowerPerformanceCount =
-    analytics?.student_summaries.filter(
-      (student) => student.relative_performance === 'lower_performance_group',
-    ).length ?? 0
+  const assessmentEntries = Object.entries(register?.assessment_names ?? {})
 
-  const studentsWithMissingMarks =
-    analytics?.student_summaries.filter((student) =>
-      Object.values(student.assessments).some((assessment) => assessment.marks === null),
-    ).length ?? 0
-
-  const analyticsAverageValues =
-    analytics?.student_summaries
-      .map((student) => student.descriptive_average_percentage)
-      .filter((score): score is number => score !== null) ?? []
-
-  const descriptiveClassAverage =
-    analyticsAverageValues.length > 0
-      ? analyticsAverageValues.reduce((sum, score) => sum + score, 0) /
-        analyticsAverageValues.length
-      : null
-
-
-  const selectedStudent = evaluation?.student_results.find(
-    (student) => student.student_id === selectedStudentId,
-  )
-
-  const passCount =
-    evaluation?.student_results.filter((s) => s.pass_status === 'pass').length ?? 0
-
-  const failCount =
-    evaluation?.student_results.filter((s) => s.pass_status === 'fail').length ?? 0
-
-  const assessedScores =
-    evaluation?.student_results
-      .map((s) => s.weighted_percentage)
-      .filter((score): score is number => score !== null) ?? []
-
-  const classAverage =
-    assessedScores.length > 0
-      ? assessedScores.reduce((sum, score) => sum + score, 0) /
-        assessedScores.length
-      : null
-
-  return (
-    <div className="academic-evaluation">
-      <section className="academic-card">
-        <div className="academic-section-heading">
-          <div>
-            <h3>Grading policy</h3>
-            <p>Configure the assessment scheme used to calculate official results.</p>
-          </div>
-        </div>
-
-        <div className="academic-policy-import">
-          <label className="academic-field">
-            Import grading policy (CSV or Excel)
-            <input type="file" accept=".csv,.xlsx" onChange={(event) => setPolicyFile(event.target.files?.[0] ?? null)} />
-          </label>
-          <button type="button" className="secondary-button" onClick={() => void importPolicyFile()} disabled={!policyFile || policyImportLoading || !courseId}>
-            <FileText size={16} /> {policyImportLoading ? 'Importing…' : 'Import into form'}
-          </button>
-          <p>Imported values will appear below. Review or edit them before saving.</p>
-        </div>
-
-        <div className="academic-assessments">
-          {assessments.map((assessment, index) => (
-            <div className="academic-assessment-row" key={index}>
-              <label>
-                Assessment name
-                <input
-                  value={assessment.name}
-                  onChange={(e) => updateAssessment(index, 'name', e.target.value)}
-                  placeholder={`e.g. Quiz ${index + 1}`}
-                />
-              </label>
-              <label>
-                Weight (%)
-                <input
-                  type="number"
-                  min="0.01"
-                  max="100"
-                  value={assessment.weight}
-                  onChange={(e) => updateAssessment(index, 'weight', e.target.value)}
-                  placeholder="20"
-                />
-              </label>
-              <label>
-                Maximum marks
-                <input
-                  type="number"
-                  min="0.01"
-                  value={assessment.maximum}
-                  onChange={(e) => updateAssessment(index, 'maximum', e.target.value)}
-                  placeholder="10"
-                />
-              </label>
-              <button
-                type="button"
-                className="academic-remove-button"
-                onClick={() =>
-                  setAssessments((previous) =>
-                    previous.filter((_, i) => i !== index),
-                  )
-                }
-                disabled={assessments.length <= 1}
-                aria-label={`Remove assessment ${index + 1}`}
-              >
-                <X size={16} />
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="academic-policy-actions">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() =>
-              setAssessments((previous) => [
-                ...previous,
-                { name: '', weight: '', maximum: '' },
-              ])
-            }
-          >
-            <Plus size={16} /> Add assessment
-          </button>
-        </div>
-
-        <div className="academic-policy-options">
-          <label>
-            Pass percentage
-            <input
-              type="number"
-              min="0"
-              max="100"
-              value={passPercentage}
-              onChange={(e) => setPassPercentage(e.target.value)}
-            />
-          </label>
-
-          <label>
-            Missing marks
-            <select
-              value={missingPolicy}
-              onChange={(e) =>
-                setMissingPolicy(e.target.value as 'exclude' | 'zero')
-              }
-            >
-              <option value="exclude">Exclude and normalize remaining weights</option>
-              <option value="zero">Count missing marks as zero</option>
-            </select>
-          </label>
-        </div>
-
-        <button
-          type="button"
-          className="primary-button"
-          onClick={savePolicy}
-          disabled={policyLoading}
-        >
-          {policyLoading ? 'Saving policy…' : 'Save grading policy'}
+  return <div className="academic-evaluation">
+    <section className="academic-card">
+      <div className="academic-section-heading"><div><h3>Marks upload</h3><p>Upload assessment marks whenever they are available. New assessments become new columns; later uploads update only the assessments included in that file.</p></div></div>
+      <label className="academic-field" htmlFor="academic-marks-file">Marks file (CSV/XLSX)
+        <input id="academic-marks-file" type="file" accept=".csv,.xlsx" onChange={event => setMarksFile(event.target.files?.[0] ?? null)} />
+      </label>
+      <div className="academic-action-row">
+        <button type="button" className="primary-button" disabled={!marksFile || busy === 'upload'} onClick={() => void uploadMarks()}>
+          <Upload size={16}/>{busy === 'upload' ? 'Uploading…' : 'Upload / update marks'}
         </button>
-
-        {policyMessage && (
-          <p className="academic-success" role="status">{policyMessage}</p>
-        )}
-      </section>
-
-      <section className="academic-card">
-        <h3>Upload class marks</h3>
-        <p>Upload a marks file whose assessment column names match the saved policy.</p>
-
-        <label className="academic-field">
-          CSV or XLSX file
-          <input
-            type="file"
-            accept=".csv,.xlsx"
-            onChange={(e) => setMarksFile(e.target.files?.[0] ?? null)}
-          />
-        </label>
-
-        {marksFile && (
-          <p className="academic-file-name">
-            <FileText size={16} /> {marksFile.name}
-          </p>
-        )}
-
-        <button
-          type="button"
-          className="primary-button"
-          onClick={uploadMarks}
-          disabled={uploadLoading || !marksFile}
-        >
-          {uploadLoading ? 'Evaluating class…' : 'Evaluate class'}
-        </button>
-
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={analyzeClass}
-          disabled={analyticsLoading || !marksFile}
-        >
-          {analyticsLoading ? 'Analyzing class…' : 'Analyze class trends'}
-        </button>
-
-        {analyticsError && (
-          <div className="feedback error-feedback" role="alert">
-            <AlertCircle size={19} />
-            <div>
-              <strong>Analytics unavailable</strong>
-              <p>{analyticsError}</p>
-            </div>
+        <button type="button" className="secondary-button" disabled={!!busy} onClick={() => void refreshAll()}><RefreshCw size={16}/> Refresh</button>
+      </div>
+      <div className="academic-upload-list">
+        <h4>Uploaded marks files</h4>
+        {uploads.length === 0 ? <p>No marks files uploaded yet.</p> : uploads.map(upload => (
+          <div className="academic-upload-item" key={upload.upload_id}>
+            <div><strong>{upload.filename}</strong><p>{Object.values(upload.assessment_names ?? {}).join(', ')} · {upload.student_count} students · {new Date(upload.uploaded_at).toLocaleString()}</p></div>
+            <button type="button" className="secondary-button" disabled={busy === `delete:${upload.upload_id}`} onClick={() => void deleteUpload(upload)}><Trash2 size={15}/>{busy === `delete:${upload.upload_id}` ? 'Deleting…' : 'Delete'}</button>
           </div>
-        )}
+        ))}
+      </div>
+    </section>
 
-      </section>
+    {error && <div className="feedback error-feedback" role="alert"><AlertCircle size={18}/><p>{error}</p></div>}
+    {message && <p className="academic-success" role="status">{message}</p>}
 
-      {error && (
-        <div className="feedback error-feedback" role="alert">
-          <AlertCircle size={19} />
-          <div><strong>Unable to continue</strong><p>{error}</p></div>
-          <button
-            className="feedback-close"
-            onClick={() => setError('')}
-            aria-label="Dismiss error"
-          >
-            <X size={16} />
-          </button>
-        </div>
-      )}
-
-      {evaluation && (
-        <section className="academic-card">
-          <div className="academic-section-heading">
-            <div>
-              <h3>Class evaluation</h3>
-              <p>Course: {evaluation.course_id}</p>
-            </div>
-            <span className="academic-student-count">
-              {evaluation.number_of_students} students
-            </span>
-          </div>
-
-          <div className="academic-summary-grid">
-            <article>
-              <span>Class average</span>
-              <strong>{classAverage === null ? '—' : `${classAverage.toFixed(1)}%`}</strong>
-            </article>
-            <article>
-              <span>Passed</span>
-              <strong>{passCount}</strong>
-            </article>
-            <article>
-              <span>Failed</span>
-              <strong>{failCount}</strong>
-            </article>
-            <article>
-              <span>Provisional / not assessed</span>
-              <strong>
-                {evaluation.student_results.filter(
-                  (s) => s.pass_status === 'provisional' || s.pass_status === 'not_assessed',
-                ).length}
-              </strong>
-            </article>
-          </div>
-
-          <h4>Student results</h4>
-          <div className="academic-table-wrap">
-            <table className="academic-table">
-              <thead>
-                <tr>
-                  <th>Student ID</th>
-                  <th>Weighted score</th>
-                  <th>Status</th>
-                  <th>Complete</th>
-                </tr>
-              </thead>
-              <tbody>
-                {evaluation.student_results.map((student) => (
-                  <tr
-                    key={student.student_id}
-                    className={student.student_id === selectedStudentId ? 'selected' : ''}
-                    onClick={() => setSelectedStudentId(student.student_id)}
-                  >
-                    <td>
-                      <button
-                        type="button"
-                        className="academic-student-link"
-                        onClick={() => setSelectedStudentId(student.student_id)}
-                      >
-                        {student.student_id}
-                      </button>
-                    </td>
-                    <td>
-                      {student.weighted_percentage === null
-                        ? '—'
-                        : `${student.weighted_percentage.toFixed(2)}%`}
-                    </td>
-                    <td>
-                      <span className={`academic-status ${student.pass_status}`}>
-                        {student.pass_status.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td>{student.is_complete ? 'Yes' : 'No'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {selectedStudent && (
-            <div className="academic-student-detail">
-              <h4>Student summary: {selectedStudent.student_id}</h4>
-              <p>
-                <strong>Weighted percentage:</strong>{' '}
-                {selectedStudent.weighted_percentage === null
-                  ? 'Not available'
-                  : `${selectedStudent.weighted_percentage.toFixed(2)}%`}
-              </p>
-              <p><strong>Status:</strong> {selectedStudent.pass_status.replace('_', ' ')}</p>
-              <p><strong>Complete:</strong> {selectedStudent.is_complete ? 'Yes' : 'No'}</p>
-              <p><strong>Notes:</strong> {selectedStudent.message}</p>
-              {selectedStudent.missing_assessments.length > 0 && (
-                <p>
-                  <strong>Missing assessments:</strong>{' '}
-                  {selectedStudent.missing_assessments.join(', ')}
-                </p>
-              )}
-            </div>
-          )}
-        </section>
-      )}
-      
-      {analytics && (
-        <section className="academic-card">
-          <div className="academic-section-heading">
-            <div>
-              <h3>Class performance insights</h3>
-              <p>
-                Descriptive statistics based on the uploaded marks file.
-                These are separate from official weighted grades.
-              </p>
-            </div>
-          </div>
-
-          <div className="academic-summary-grid">
-            <article>
-              <span>Students analyzed</span>
-              <strong>{analytics.number_of_students}</strong>
-            </article>
-            <article>
-              <span>Descriptive class average</span>
-              <strong>
-                {descriptiveClassAverage === null
-                  ? '—'
-                  : `${descriptiveClassAverage.toFixed(1)}%`}
-              </strong>
-            </article>
-            <article>
-              <span>Lower relative-performance group</span>
-              <strong>{lowerPerformanceCount}</strong>
-            </article>
-            <article>
-              <span>Students with missing marks</span>
-              <strong>{studentsWithMissingMarks}</strong>
-            </article>
-          </div>
-
-          <h4>Assessment-wise performance</h4>
-
-          <div className="academic-assessment-analytics">
-            {Object.entries(analytics.class_assessments).map(([name, stats]) => (
-              <article className="academic-assessment-stat" key={name}>
-                <div className="academic-assessment-stat-heading">
-                  <strong>{name}</strong>
-                  <span>
-                    {stats.mean_percentage == null
-                      ? 'Percentage unavailable'
-                      : `${stats.mean_percentage.toFixed(1)}% average`}
-                  </span>
-                </div>
-
-                {stats.mean_percentage != null && (
-                  <div className="academic-progress-track">
-                    <div
-                      className="academic-progress-fill"
-                      style={{
-                        width: `${Math.min(100, Math.max(0, stats.mean_percentage))}%`,
-                      }}
-                    />
-                  </div>
-                )}
-
-                <p>
-                  Median:{' '}
-                  {stats.median_percentage == null
-                    ? '—'
-                    : `${stats.median_percentage.toFixed(1)}%`}
-                  {' · '}
-                  Missing marks: {stats.missing_marks}
-                  {' · '}
-                  Students assessed: {stats.students_with_marks}
-                </p>
-              </article>
-            ))}
-          </div>
-
-          <h4>Explore individual students</h4>
-
-          <label className="academic-field">
-            Select student
-            <select
-              value={selectedAnalyticsStudent}
-              onChange={(event) => setSelectedAnalyticsStudent(event.target.value)}
-            >
-              {analytics.student_summaries.map((student) => (
-                <option key={student.student_id} value={student.student_id}>
-                  {student.student_id}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {selectedAnalyticsRecord && (
-            <div className="academic-student-detail">
-              <h4>{selectedAnalyticsRecord.student_id}</h4>
-
-              <p>
-                <strong>Descriptive average:</strong>{' '}
-                {selectedAnalyticsRecord.descriptive_average_percentage == null
-                  ? 'Insufficient percentage data'
-                  : `${selectedAnalyticsRecord.descriptive_average_percentage.toFixed(2)}%`}
-              </p>
-
-              <p>
-                <strong>Relative performance:</strong>{' '}
-                {selectedAnalyticsRecord.relative_performance.replaceAll('_', ' ')}
-              </p>
-
-              <div className="academic-table-wrap">
-                <table className="academic-table">
-                  <thead>
-                    <tr>
-                      <th>Assessment</th>
-                      <th>Marks</th>
-                      <th>Percentage</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(selectedAnalyticsRecord.assessments).map(
-                      ([name, assessment]) => (
-                        <tr key={name}>
-                          <td>{name}</td>
-                          <td>
-                            {assessment.marks == null
-                              ? 'Missing'
-                              : `${assessment.marks}${assessment.maximum_marks == null ? '' : ` / ${assessment.maximum_marks}`}`}
-                          </td>
-                          <td>
-                            {assessment.percentage == null
-                              ? '—'
-                              : `${assessment.percentage.toFixed(1)}%`}
-                          </td>
-                        </tr>
-                      ),
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          <p className="academic-analytics-note">
-            The lower relative-performance group is identified using the configured
-            percentile cutoff. This is an academic support indicator, not proof of
-            a conceptual learning difficulty.
-          </p>
-        </section>
-      )}
-
-    </div>
-  )
+    <section className="academic-card">
+      <div className="academic-section-heading"><div><h3>Course marks register</h3><p>{register ? `${register.number_of_students} enrolled students · select a mark to edit it` : 'Loading enrolled students and marks…'}</p></div></div>
+      {register && <>
+        <div className="academic-table-wrap"><table className="academic-table"><thead><tr><th>Student roll number</th>{assessmentEntries.map(([key, name]) => <th key={key}>{name}</th>)}</tr></thead>
+          <tbody>{visibleRows.map(student => <tr key={student.student_id}><td>{student.display_id || student.student_id}</td>{assessmentEntries.map(([key]) => {
+            const value = student.assessments?.[key] ?? null
+            const maximum = student.assessment_maximums?.[key]
+            return <td key={key}><button type="button" className="academic-mark-cell" title="Edit mark" disabled={busy === 'edit'} onClick={() => void editMark(student, key, value)}>{value == null ? '—' : value}{maximum != null ? <small className="academic-mark-maximum"> / {maximum}</small> : null}<Pencil size={11}/></button></td>
+          })}</tr>)}</tbody>
+        </table></div>
+        {register.students.length > 10 && <button type="button" className="secondary-button academic-expand-button" onClick={() => setExpanded(value => !value)}>{expanded ? <><ChevronUp size={16}/> View less</> : <><ChevronDown size={16}/> View all {register.students.length} students</>}</button>}
+        {assessmentEntries.length === 0 && <p>No assessment marks have been uploaded yet.</p>}
+      </>}
+    </section>
+  </div>
 }
