@@ -92,3 +92,58 @@ def test_edit_mark_endpoint(professor_client, monkeypatch):
     assert response.json()["marks"] == 9
 
 
+
+
+
+def test_inline_evaluation_uses_register_and_saves_configuration(professor_client, monkeypatch):
+    _allow_course(monkeypatch)
+    monkeypatch.setattr(
+        "backend.app.api.academic_evaluation.get_marks_register",
+        lambda course_id: {
+            "course_id": course_id,
+            "assessment_names": {"quiz": "Quiz", "exam": "Exam"},
+            "students": [
+                {"student_id": "u1", "display_id": "S001", "assessments": {"quiz": 8, "exam": 70}},
+                {"student_id": "u2", "display_id": "S002", "assessments": {"quiz": None, "exam": 60}},
+            ],
+        },
+    )
+    monkeypatch.setattr("backend.app.api.academic_evaluation.get_policy", lambda course_id: None)
+    monkeypatch.setattr("backend.app.api.academic_evaluation.create_policy", lambda policy: policy)
+    response = professor_client.post(
+        "/academic-evaluation/evaluate/CS_TEST_101",
+        json={
+            "assessment_weights": {"quiz": 20, "exam": 80},
+            "assessment_max_marks": {"quiz": 10, "exam": 100},
+            "pass_percentage": 40,
+            "missing_marks_policy": "exclude",
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["student_results"][0]["weighted_percentage"] == 72.0
+    assert body["student_results"][1]["pass_status"] == "provisional"
+    assert body["student_results"][1]["missing_assessments"] == ["quiz"]
+    assert body["summary"]["student_count"] == 2
+    assert body["summary"]["class_average_percentage"] == 66.0
+    assert body["summary"]["complete_average_percentage"] == 72.0
+    assert body["summary"]["pass_count"] == 1
+    assert body["summary"]["provisional_count"] == 1
+    assert body["summary"]["pass_rate"] == 100.0
+    assert body["summary"]["assessment_summary"][0]["average_percentage"] == 80.0
+    assert body["summary"]["assessment_summary"][1]["average_percentage"] == 65.0
+
+
+def test_inline_evaluation_rejects_weights_not_totaling_100(professor_client, monkeypatch):
+    _allow_course(monkeypatch)
+    response = professor_client.post(
+        "/academic-evaluation/evaluate/CS_TEST_101",
+        json={
+            "assessment_weights": {"quiz": 20},
+            "assessment_max_marks": {"quiz": 10},
+            "pass_percentage": 40,
+            "missing_marks_policy": "exclude",
+        },
+    )
+    assert response.status_code == 422
+    assert "total exactly 100" in response.json()["detail"]
