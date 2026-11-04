@@ -31,6 +31,7 @@ export async function register(payload: {
   password: string
   role: 'student' | 'professor'
   roll_number?: string
+  display_name?: string
   professor_registration_code?: string
 }) {
   const response = await fetch('/api/auth/register', {

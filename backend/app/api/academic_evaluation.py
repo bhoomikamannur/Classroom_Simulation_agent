@@ -12,6 +12,7 @@ from backend.app.analytics.marks_store import (
 from backend.app.analytics.academic_analysis import load_marks_file
 from backend.app.analytics.academic_policy import validate_academic_policy, calculate_weighted_result
 from backend.app.analytics.policy_store import create_policy, get_policy, update_policy
+from backend.app.services.academic_alerts import persist_evaluation_and_update_alerts
 from backend.app.api.auth import require_role, get_current_user
 from backend.app.services.course_access import get_accessible_course
 
@@ -155,12 +156,20 @@ def evaluate_course_marks(
             saved_policy = create_policy(policy)
         else:
             saved_policy = update_policy(course_id, policy)
+
+        alert_update = persist_evaluation_and_update_alerts(
+            course_id=course_id,
+            professor_id=str(current_user.get("user_id", "")),
+            student_results=results,
+            pass_percentage=float(policy["pass_percentage"]),
+        )
         return {
             "course_id": course_id,
             "number_of_students": len(results),
             "grading_policy": saved_policy or policy,
             "student_results": results,
             "summary": summary,
+            "alert_update": alert_update,
             "message": "Academic results evaluated and configuration saved.",
         }
     except ValueError as exc:

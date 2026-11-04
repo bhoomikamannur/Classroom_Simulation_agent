@@ -111,4 +111,34 @@ def test_persisting_returning_misconception_reopens_resolved_alert(monkeypatch):
         "resolved_at": "",
         "resolution_evidence": "",
         "resolution_reason": "",
+        "acknowledged_at": "",
+        "acknowledged_by": "",
+        "closed_at": "",
+        "closed_by": "",
     }
+
+
+
+def test_returning_misconception_reopens_professor_closed_alert_and_clears_acknowledgement(monkeypatch):
+    alerts = _persist(
+        monkeypatch,
+        {
+            "student_id": "student-1",
+            "course_id": "course-1",
+            "concept_key": "planning",
+            "alert_type": "persistent_misconception",
+            "status": "closed",
+            "closed_at": "dismissed-at",
+            "closed_by": "professor-1",
+            "acknowledged_at": "acknowledged-at",
+            "acknowledged_by": "professor-1",
+        },
+        "confused",
+    )
+    alert_updates = [update for _, update, _ in alerts.updates]
+    reopening = next(update for update in alert_updates if update.get("$set", {}).get("status") == "open")
+    assert reopening["$set"]["status"] == "open"
+    assert "closed_at" in reopening["$unset"]
+    assert "closed_by" in reopening["$unset"]
+    assert "acknowledged_at" in reopening["$unset"]
+    assert "acknowledged_by" in reopening["$unset"]

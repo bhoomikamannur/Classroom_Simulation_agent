@@ -278,7 +278,11 @@ def _persist_success(
                             f"A misconception about {concept} is still evident across learning activity."
                         ),
                     },
-                    "$unset": {"resolved_at": "", "resolution_evidence": "", "resolution_reason": ""},
+                    "$unset": {
+                        "resolved_at": "", "resolution_evidence": "", "resolution_reason": "",
+                        "closed_at": "", "closed_by": "",
+                        "acknowledged_at": "", "acknowledged_by": "",
+                    },
                 }
                 if not existing_alert:
                     update["$setOnInsert"] = {

@@ -2409,3 +2409,105 @@
   .academic-summary-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .academic-summary-secondary { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
+
+
+/* Course-wide professor alert controls */
+.performance-tool .course-alerts-section {
+  margin: 24px 0;
+  padding: 20px;
+  border: 1px solid #e3e7f0;
+  border-radius: 12px;
+  background: #fbfcff;
+}
+.performance-tool .course-alerts-heading,
+.performance-tool .course-alert-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.performance-tool .course-alerts-heading h3 {
+  margin: 0 0 5px;
+  color: #202b43;
+}
+.performance-tool .course-alerts-heading p {
+  margin: 0;
+}
+.performance-tool .course-alert-count {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eef0ff;
+  color: #5148c8;
+  font-size: 12px;
+  font-weight: 700;
+}
+.performance-tool .course-alert-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.performance-tool .course-alert-card {
+  padding: 16px;
+  border: 1px solid #e3e7f0;
+  border-left: 4px solid #9aa3b2;
+  border-radius: 10px;
+  background: #fff;
+}
+.performance-tool .course-alert-card.priority-high { border-left-color: #d94b4b; }
+.performance-tool .course-alert-card.priority-medium { border-left-color: #d69b32; }
+.performance-tool .course-alert-card.priority-low { border-left-color: #6b91c8; }
+.performance-tool .course-alert-card h4 {
+  margin: 8px 0 4px;
+  color: #202b43;
+}
+.performance-tool .course-alert-card p {
+  margin: 8px 0;
+}
+.performance-tool .course-alert-priority {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .05em;
+}
+.performance-tool .course-alert-priority.priority-high { color: #bd3434; }
+.performance-tool .course-alert-priority.priority-medium { color: #99630c; }
+.performance-tool .course-alert-priority.priority-low { color: #426b9f; }
+.performance-tool .course-alert-student { color: #374258 !important; }
+.performance-tool .course-alert-type,
+.performance-tool .course-alert-acknowledged {
+  color: #788196;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.performance-tool .course-alert-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.performance-tool .course-alert-actions button {
+  padding: 8px 12px;
+  border: 1px solid #d9deea;
+  border-radius: 8px;
+  background: #fff;
+  color: #374258;
+  font-size: 12px;
+  font-weight: 600;
+}
+.performance-tool .course-alert-actions button.course-alert-close {
+  border-color: #efcaca;
+  color: #a33a3a;
+}
+.performance-tool .course-alert-actions button:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+.performance-tool .course-alert-empty {
+  margin: 16px 0 0;
+}
+@media (max-width: 640px) {
+  .performance-tool .course-alerts-heading,
+  .performance-tool .course-alert-card-top {
+    flex-direction: column;
+  }
+}

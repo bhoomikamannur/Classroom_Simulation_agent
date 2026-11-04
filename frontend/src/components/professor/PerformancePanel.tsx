@@ -1,6 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { PerformanceApiResponse } from '../../types'
 import { apiFetch } from '../../services/api'
+
+type CourseAlert = {
+  id: string
+  student_id: string
+  student_name: string
+  roll_number?: string | null
+  alert_type: string
+  concept?: string
+  priority: string
+  message: string
+  acknowledged_at?: string | null
+  created_at?: string | null
+}
 
 type ActivityStatus = {
   pending_meaningful_responses: number
@@ -33,6 +46,50 @@ export function PerformancePanel({ courseId }: { courseId: string }) {
   const [error, setError] = useState('')
   const [result, setResult] = useState<PerformanceApiResponse | null>(null)
   const [activity, setActivity] = useState<ActivityStatus | null>(null)
+  const [courseAlerts, setCourseAlerts] = useState<CourseAlert[]>([])
+  const [alertsLoading, setAlertsLoading] = useState(false)
+  const [alertError, setAlertError] = useState('')
+  const [alertActionId, setAlertActionId] = useState('')
+
+  async function loadCourseAlerts(showLoading = false) {
+    if (!courseId) { setCourseAlerts([]); return }
+    if (showLoading) setAlertsLoading(true)
+    try {
+      const query = new URLSearchParams({ course_id: courseId })
+      const response = await apiFetch(`/api/performance/alerts?${query.toString()}`)
+      const data = await response.json()
+      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Could not load course alerts.')
+      setCourseAlerts(Array.isArray(data.alerts) ? data.alerts as CourseAlert[] : [])
+      setAlertError('')
+    } catch (err) {
+      setAlertError(err instanceof Error ? err.message : 'Could not load course alerts.')
+    } finally {
+      if (showLoading) setAlertsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadCourseAlerts(true)
+    const intervalId = window.setInterval(() => { void loadCourseAlerts() }, 30000)
+    return () => window.clearInterval(intervalId)
+  }, [courseId])
+
+  async function updateCourseAlert(alert: CourseAlert, action: 'acknowledge' | 'close') {
+    if (action === 'close' && !window.confirm(`Close this alert for ${alert.student_name}${alert.roll_number ? ` (${alert.roll_number})` : ''}? It will leave the active list, but its history will be retained.`)) return
+    setAlertActionId(`${alert.id}:${action}`)
+    setAlertError('')
+    try {
+      const query = new URLSearchParams({ course_id: courseId })
+      const response = await apiFetch(`/api/performance/alerts/${alert.id}/${action}?${query.toString()}`, { method: 'POST' })
+      const data = await response.json()
+      if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : `Could not ${action} alert.`)
+      await loadCourseAlerts()
+    } catch (err) {
+      setAlertError(err instanceof Error ? err.message : `Could not ${action} alert.`)
+    } finally {
+      setAlertActionId('')
+    }
+  }
 
   async function loadStatus() {
     if (!courseId || !rollNumber.trim()) {
@@ -114,6 +171,43 @@ export function PerformancePanel({ courseId }: { courseId: string }) {
       </div>
     </div>
     {error && <div className="feedback error-feedback" role="alert">{error}</div>}
+
+    <div className="course-alerts-section">
+      <div className="course-alerts-heading">
+        <div>
+          <h3>Course-wide teacher alerts</h3>
+          <p>Active alerts for enrolled students. This list refreshes automatically every 30 seconds.</p>
+        </div>
+        <span className="course-alert-count">{courseAlerts.length} active</span>
+      </div>
+      {alertError && <div className="feedback error-feedback" role="alert">{alertError}</div>}
+      {alertsLoading && courseAlerts.length === 0
+        ? <p>Loading course alerts…</p>
+        : courseAlerts.length === 0
+          ? <p className="course-alert-empty">No active alerts for this course.</p>
+          : <div className="course-alert-list">
+            {courseAlerts.map((alert) => <article className={`course-alert-card priority-${alert.priority.toLowerCase()}`} key={alert.id}>
+              <div className="course-alert-card-top">
+                <div>
+                  <span className={`course-alert-priority priority-${alert.priority.toLowerCase()}`}>{alert.priority.toUpperCase()} PRIORITY</span>
+                  <h4>{alert.concept || alert.alert_type.replaceAll('_', ' ')}</h4>
+                  <p className="course-alert-student"><strong>{alert.student_name}</strong>{alert.roll_number ? ` · ${alert.roll_number}` : ''}</p>
+                </div>
+                <span className="course-alert-type">{alert.alert_type.replaceAll('_', ' ')}</span>
+              </div>
+              <p>{alert.message}</p>
+              {alert.acknowledged_at && <small className="course-alert-acknowledged">Acknowledged · {new Date(alert.acknowledged_at).toLocaleString()}</small>}
+              <div className="course-alert-actions">
+                {!alert.acknowledged_at && <button type="button" onClick={() => void updateCourseAlert(alert, 'acknowledge')} disabled={!!alertActionId}>
+                  {alertActionId === `${alert.id}:acknowledge` ? 'Acknowledging…' : 'Acknowledge'}
+                </button>}
+                <button type="button" className="course-alert-close" onClick={() => void updateCourseAlert(alert, 'close')} disabled={!!alertActionId}>
+                  {alertActionId === `${alert.id}:close` ? 'Closing…' : 'Close alert'}
+                </button>
+              </div>
+            </article>)}
+          </div>}
+    </div>
 
     {activity && <div className="performance-result">
       <h3>Incremental learning activity</h3>

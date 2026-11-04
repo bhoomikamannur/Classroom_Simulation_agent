@@ -53,3 +53,105 @@ def test_professor_cannot_analyze_course_they_do_not_own(professor_client, monke
         json={"student_id": "S001", "course_id": "other-course"},
     )
     assert response.status_code == 403
+
+
+class _Cursor(list):
+    def sort(self, keys):
+        rows = list(self)
+        for field, direction in reversed(keys):
+            rows = sorted(rows, key=lambda item: item.get(field) or "", reverse=direction < 0)
+        self[:] = rows
+        return self
+
+
+class _AlertCollection:
+    def __init__(self, docs):
+        self.docs = docs
+        self.updates = []
+
+    def find(self, query, projection=None):
+        rows = [dict(doc) for doc in self.docs if all(
+            (doc.get(key) in value.get("$in", [])) if isinstance(value, dict) and "$in" in value
+            else doc.get(key) == value
+            for key, value in query.items()
+        )]
+        return _Cursor(rows)
+
+    def update_one(self, query, update):
+        self.updates.append((query, update))
+        doc = next((item for item in self.docs if all(item.get(k) == v for k, v in query.items())), None)
+        if doc is None:
+            return type("Result", (), {"matched_count": 0})()
+        doc.update(update.get("$set", {}))
+        return type("Result", (), {"matched_count": 1})()
+
+
+class _UsersCollection:
+    def find(self, query, projection=None):
+        ids = query["user_id"]["$in"]
+        return [
+            {"user_id": "student-1", "roll_number": "23bcs001", "email": "student1@example.com", "display_name": "Student One"}
+            for _ in [0] if "student-1" in ids
+        ]
+
+
+class _AlertsDB(dict):
+    def __init__(self, alerts):
+        super().__init__()
+        self["teacher_alerts"] = _AlertCollection(alerts)
+        self["users"] = _UsersCollection()
+
+
+def test_course_alerts_list_includes_student_identity_and_only_open_alerts(professor_client, monkeypatch):
+    from bson import ObjectId
+    open_id = ObjectId()
+    alerts = [
+        {"_id": open_id, "student_id": "student-1", "course_id": "course-1",
+         "professor_id": "test-professor-001", "status": "open", "priority": "high",
+         "alert_type": "persistent_misconception", "concept": "Planning", "message": "Needs support."},
+        {"_id": ObjectId(), "student_id": "student-1", "course_id": "course-1",
+         "professor_id": "test-professor-001", "status": "closed", "priority": "medium"},
+    ]
+    monkeypatch.setattr(api, "get_accessible_course", lambda course_id, user: {"course_id": course_id})
+    monkeypatch.setattr(api, "get_mongodb_database", lambda: _AlertsDB(alerts))
+    response = professor_client.get("/performance/alerts?course_id=course-1")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 1
+    assert body["alerts"][0]["student_name"] == "Student One"
+    assert body["alerts"][0]["roll_number"] == "23bcs001"
+    assert body["alerts"][0]["priority"] == "high"
+
+
+def test_professor_can_acknowledge_without_resolving_alert(professor_client, monkeypatch):
+    from bson import ObjectId
+    alert_id = ObjectId()
+    alert = {"_id": alert_id, "course_id": "course-1", "professor_id": "test-professor-001", "status": "open"}
+    db = _AlertsDB([alert])
+    monkeypatch.setattr(api, "get_accessible_course", lambda course_id, user: {"course_id": course_id})
+    monkeypatch.setattr(api, "get_mongodb_database", lambda: db)
+    response = professor_client.post(f"/performance/alerts/{alert_id}/acknowledge?course_id=course-1")
+    assert response.status_code == 200
+    assert alert["status"] == "open"
+    assert alert["acknowledged_by"] == "test-professor-001"
+    assert alert["acknowledged_at"] is not None
+
+
+def test_professor_can_close_alert_without_deleting_history(professor_client, monkeypatch):
+    from bson import ObjectId
+    alert_id = ObjectId()
+    alert = {"_id": alert_id, "course_id": "course-1", "professor_id": "test-professor-001", "status": "open"}
+    db = _AlertsDB([alert])
+    monkeypatch.setattr(api, "get_accessible_course", lambda course_id, user: {"course_id": course_id})
+    monkeypatch.setattr(api, "get_mongodb_database", lambda: db)
+    response = professor_client.post(f"/performance/alerts/{alert_id}/close?course_id=course-1")
+    assert response.status_code == 200
+    assert alert["status"] == "closed"
+    assert alert["closed_by"] == "test-professor-001"
+    assert alert["closed_at"] is not None
+    assert len(db["teacher_alerts"].docs) == 1
+
+
+def test_student_cannot_list_professor_course_alerts(student_client):
+    response = student_client.get("/performance/alerts?course_id=course-1")
+    assert response.status_code == 403

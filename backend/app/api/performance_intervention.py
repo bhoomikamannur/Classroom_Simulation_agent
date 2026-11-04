@@ -1,4 +1,7 @@
 from typing import Any
+from datetime import date, datetime
+
+from bson import ObjectId
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -162,3 +165,132 @@ def manually_reanalyze(
         raise HTTPException(status_code=504, detail=f"Performance analysis timed out: {exc}") from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Could not complete incremental analysis: {exc}") from exc
+
+
+
+def _json_safe(value):
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
+@router.get("/alerts")
+def list_course_alerts(
+    course_id: str,
+    current_user: dict = Depends(require_role("professor")),
+) -> dict[str, Any]:
+    """Return active alerts for every enrolled student in a professor-owned course."""
+    get_accessible_course(course_id, current_user)
+    db = get_mongodb_database()
+    query = {
+        "course_id": course_id,
+        "professor_id": current_user.get("user_id"),
+        "status": "open",
+    }
+    alerts = list(db["teacher_alerts"].find(query))
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    alerts.sort(
+        key=lambda alert: (
+            priority_rank.get(str(alert.get("priority", "medium")).lower(), 1),
+            -(alert.get("created_at").timestamp() if isinstance(alert.get("created_at"), datetime) else 0),
+        )
+    )
+    student_ids = list({str(alert.get("student_id", "")) for alert in alerts if alert.get("student_id")})
+    users = list(db["users"].find(
+        {"user_id": {"$in": student_ids}, "role": "student"},
+        {"_id": 0, "user_id": 1, "roll_number": 1, "name": 1, "full_name": 1, "display_name": 1, "email": 1},
+    )) if student_ids else []
+    user_by_id = {str(user.get("user_id")): user for user in users}
+
+    items = []
+    for alert in alerts:
+        student = user_by_id.get(str(alert.get("student_id", "")), {})
+        name = (
+            student.get("display_name")
+            or student.get("full_name")
+            or student.get("name")
+            or student.get("email")
+            or "Student"
+        )
+        item = {
+            "id": str(alert.get("_id", "")),
+            "student_id": str(alert.get("student_id", "")),
+            "student_name": name,
+            "roll_number": student.get("roll_number"),
+            "alert_type": alert.get("alert_type"),
+            "concept": alert.get("concept"),
+            "priority": alert.get("priority", "medium"),
+            "message": alert.get("message", ""),
+            "status": alert.get("status", "open"),
+            "created_at": alert.get("created_at"),
+            "updated_at": alert.get("updated_at"),
+            "latest_seen_at": alert.get("latest_seen_at"),
+            "acknowledged_at": alert.get("acknowledged_at"),
+            "acknowledged_by": alert.get("acknowledged_by"),
+            "priority_reasons": alert.get("priority_reasons", []),
+            "academic_context": alert.get("academic_context"),
+        }
+        items.append(_json_safe(item))
+    return {"course_id": course_id, "alerts": items, "count": len(items)}
+
+
+def _update_open_alert(
+    alert_id: str,
+    course_id: str,
+    current_user: dict,
+    update: dict,
+) -> dict[str, Any]:
+    get_accessible_course(course_id, current_user)
+    if not ObjectId.is_valid(alert_id):
+        raise HTTPException(status_code=404, detail="Active alert not found.")
+    result = get_mongodb_database()["teacher_alerts"].update_one(
+        {
+            "_id": ObjectId(alert_id),
+            "course_id": course_id,
+            "professor_id": current_user.get("user_id"),
+            "status": "open",
+        },
+        update,
+    )
+    if result.matched_count != 1:
+        raise HTTPException(status_code=404, detail="Active alert not found.")
+    return {"message": "Alert updated.", "alert_id": alert_id}
+
+
+@router.post("/alerts/{alert_id}/acknowledge")
+def acknowledge_course_alert(
+    alert_id: str,
+    course_id: str,
+    current_user: dict = Depends(require_role("professor")),
+) -> dict[str, Any]:
+    """Record that the professor has seen an alert; do not resolve or close it."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    return _update_open_alert(alert_id, course_id, current_user, {"$set": {
+        "acknowledged_at": now,
+        "acknowledged_by": current_user.get("user_id"),
+        "updated_at": now,
+    }})
+
+
+@router.post("/alerts/{alert_id}/close")
+def close_course_alert(
+    alert_id: str,
+    course_id: str,
+    current_user: dict = Depends(require_role("professor")),
+) -> dict[str, Any]:
+    """Dismiss an alert from the active view while retaining its audit history."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    return _update_open_alert(alert_id, course_id, current_user, {"$set": {
+        "status": "closed",
+        "closed_at": now,
+        "closed_by": current_user.get("user_id"),
+        "updated_at": now,
+    }})

@@ -8,6 +8,7 @@ export function RegisterPage({ onRegistered, onShowLogin }: Props) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [rollNumber, setRollNumber] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [role, setRole] = useState<'student' | 'professor'>('student')
   const [professorCode, setProfessorCode] = useState('')
   const [error, setError] = useState('')
@@ -20,7 +21,7 @@ export function RegisterPage({ onRegistered, onShowLogin }: Props) {
     try {
       await register({
         email: email.trim(), password, role,
-        ...(role === 'student' ? { roll_number: rollNumber.trim().toLowerCase() } : {}),
+        ...(role === 'student' ? { roll_number: rollNumber.trim().toLowerCase(), display_name: displayName.trim() } : {}),
         ...(role === 'professor' ? { professor_registration_code: professorCode } : {}),
       })
       onRegistered()
@@ -45,6 +46,8 @@ export function RegisterPage({ onRegistered, onShowLogin }: Props) {
             <label><input type="radio" name="role" checked={role === 'professor'} onChange={() => setRole('professor')} /> Professor</label>
           </div>
           {role === 'student' && <>
+            <label htmlFor="register-display-name">Student name</label>
+            <div className="auth-input-wrap"><UserRound size={17} /><input id="register-display-name" value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Enter your full name" maxLength={100} autoComplete="name" required /></div>
             <label htmlFor="register-roll-number">Student roll number</label>
             <div className="auth-input-wrap"><UserRound size={17} /><input id="register-roll-number" value={rollNumber} onChange={e => setRollNumber(e.target.value)} placeholder="e.g. 23bcs000" minLength={3} maxLength={20} pattern="[A-Za-z0-9][A-Za-z0-9-]{2,19}" autoComplete="off" required /></div>
           </>}

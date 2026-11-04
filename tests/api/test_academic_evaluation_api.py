@@ -110,6 +110,10 @@ def test_inline_evaluation_uses_register_and_saves_configuration(professor_clien
     )
     monkeypatch.setattr("backend.app.api.academic_evaluation.get_policy", lambda course_id: None)
     monkeypatch.setattr("backend.app.api.academic_evaluation.create_policy", lambda policy: policy)
+    monkeypatch.setattr(
+        "backend.app.api.academic_evaluation.persist_evaluation_and_update_alerts",
+        lambda **kwargs: {"saved_results": 2, "alerts_opened": 0, "alerts_updated": 0, "alerts_resolved": 0},
+    )
     response = professor_client.post(
         "/academic-evaluation/evaluate/CS_TEST_101",
         json={

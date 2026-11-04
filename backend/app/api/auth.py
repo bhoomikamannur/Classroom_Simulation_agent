@@ -27,6 +27,7 @@ class RegisterRequest(BaseModel):
     password: str = Field(min_length=8, max_length=72)
     role: str = Field(pattern="^(student|professor)$")
     roll_number: str | None = Field(default=None, min_length=3, max_length=20)
+    display_name: str | None = Field(default=None, min_length=1, max_length=100)
     professor_registration_code: str | None = None
 
 
@@ -92,6 +93,7 @@ def register(request: RegisterRequest):
             )
 
     roll_number = (request.roll_number or "").strip().lower() or None
+    display_name = (request.display_name or "").strip() or None
     if request.role == "student" and roll_number:
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,19}", roll_number):
             raise HTTPException(
@@ -111,6 +113,7 @@ def register(request: RegisterRequest):
         "password_hash": hash_password(request.password),
         "role": request.role,
         **({"roll_number": roll_number} if request.role == "student" and roll_number else {}),
+        **({"display_name": display_name} if display_name else {}),
         "is_active": True,
         "created_at": datetime.now(timezone.utc),
     }
@@ -132,6 +135,7 @@ def register(request: RegisterRequest):
             "email": user["email"],
             "role": user["role"],
             "roll_number": user.get("roll_number"),
+            "display_name": user.get("display_name"),
         },
     }
 
@@ -155,6 +159,7 @@ def login(request: LoginRequest):
         "email": user["email"],
         "role": user["role"],
         "roll_number": user.get("roll_number"),
+        "display_name": user.get("display_name"),
     }
 
     return {
@@ -172,4 +177,5 @@ def get_me(current_user: dict = Depends(get_current_user)):
         "email": current_user["email"],
         "role": current_user["role"],
         "roll_number": current_user.get("roll_number"),
+        "display_name": current_user.get("display_name"),
     }
