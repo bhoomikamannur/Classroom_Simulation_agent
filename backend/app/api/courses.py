@@ -223,6 +223,39 @@ def enroll_in_course(
             detail="You are already enrolled in this course.",
         )
 
+    # A newly enrolled student also receives every already-published course project.
+    # Project Tracker reuses the existing user/course/enrollment identifiers.
+    course_projects = get_mongodb_database()["course_projects"]
+    student_projects = get_mongodb_database()["student_projects"]
+    published_projects = list(course_projects.find(
+        {"course_id": course["course_id"], "status": "published"},
+        {"_id": 0, "project_id": 1, "title": 1},
+    ))
+    student_identity = get_mongodb_database()["users"].find_one(
+        {"user_id": current_user["user_id"]},
+        {"_id": 0, "email": 1, "roll_number": 1},
+    ) or {}
+    for project in published_projects:
+        student_projects.update_one(
+            {"course_project_id": project["project_id"], "student_id": current_user["user_id"]},
+            {"$setOnInsert": {
+                "student_project_id": str(uuid4()),
+                "course_project_id": project["project_id"],
+                "course_id": course["course_id"],
+                "course_name": course.get("name"),
+                "student_id": current_user["user_id"],
+                "student_email": student_identity.get("email"),
+                "roll_number": student_identity.get("roll_number"),
+                "professor_id": course["professor_id"],
+                "title": project["title"],
+                "status": "proposal_pending",
+                "proposal_status": "not_submitted",
+                "created_at": _now(),
+                "updated_at": _now(),
+            }},
+            upsert=True,
+        )
+
     return {
         "message": "Successfully enrolled in course.",
         "course": _public_course(course),

@@ -191,12 +191,12 @@ function App() {
           onSelectCourse={setSelectedCourseId}
           savedChats={tutorChats.savedChats}
           activeChatId={tutorChats.activeChatId}
+          onOpenChat={tutorChats.openChat}
           chatMessages={tutorChats.chatMessages}
           chatLoading={tutorChats.chatLoading}
           chatError={tutorChats.chatError}
           chatInput={tutorChats.chatInput}
           onStartNewChat={tutorChats.startNewChat}
-          onOpenChat={tutorChats.openChat}
           onChatInputChange={tutorChats.setChatInput}
           onSendMessage={() => void tutorChats.sendTutorMessage()}
         />

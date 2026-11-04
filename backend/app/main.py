@@ -12,6 +12,7 @@ from backend.app.api.performance_intervention import (
 )
 from backend.app.api.auth import router as auth_router
 from backend.app.api.courses import router as courses_router
+from backend.app.api.project_tracker import router as project_tracker_router
 
 app = FastAPI(
     title="Agentic AI Classroom Simulation System",
@@ -27,6 +28,7 @@ app.include_router(academic_evaluation_router)
 app.include_router(performance_intervention_router)
 app.include_router(auth_router)
 app.include_router(courses_router)
+app.include_router(project_tracker_router)
 
 @app.get("/")
 def root():

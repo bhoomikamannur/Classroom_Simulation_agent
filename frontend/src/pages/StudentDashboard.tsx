@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, BookOpen, BookOpenCheck, Bot, ClipboardList, FileText, LoaderCircle, MessageCircle, Plus, RefreshCw } from 'lucide-react'
+import { ArrowLeft, BookOpen, BookOpenCheck, ClipboardList, FileText, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 import type { AuthUser, ChatMessage, SavedTutorChat } from '../types'
-import { StudentSidebar } from '../components/student/StudentSidebar'
 import { TutorChat } from '../components/student/TutorChat'
+import { StudentSidebar } from '../components/student/StudentSidebar'
+import { StudentProjectTracker } from '../components/student-project-tracker/StudentProjectTracker'
+import { StudentProjectWidget } from '../components/student-project-tracker/StudentProjectWidget'
 import { apiFetch } from '../services/api'
 
 type Course = { course_id: string; name: string; description: string; professor_id: string; enrolled_at?: string }
@@ -10,8 +12,9 @@ type Material = { document_id: string; filename: string; file_type: string; file
 type StudentMarks = { course_id: string; assessments: Record<string, { name: string; marks: number | null; maximum_marks: number | null }> }
 type Props = {
   currentUser: AuthUser | null; onLogout: () => void; selectedCourseId: string; onSelectCourse: (id: string) => void
-  savedChats: SavedTutorChat[]; activeChatId: string; chatMessages: ChatMessage[]; chatLoading: boolean; chatError: string; chatInput: string
-  onStartNewChat: () => void; onOpenChat: (chatId: string) => void; onChatInputChange: (value: string) => void; onSendMessage: () => void
+  savedChats: SavedTutorChat[]; activeChatId: string; onOpenChat: (chatId: string) => void
+  chatMessages: ChatMessage[]; chatLoading: boolean; chatError: string; chatInput: string
+  onStartNewChat: () => void; onChatInputChange: (value: string) => void; onSendMessage: () => void
 }
 async function read<T>(response: Response): Promise<T> {
   const data = await response.json().catch(() => ({}))
@@ -19,7 +22,7 @@ async function read<T>(response: Response): Promise<T> {
   return data as T
 }
 export function StudentDashboard(props: Props) {
-  const { currentUser, onLogout, selectedCourseId, onSelectCourse, savedChats, activeChatId, chatMessages, chatLoading, chatError, chatInput, onStartNewChat, onOpenChat, onChatInputChange, onSendMessage } = props
+  const { currentUser, onLogout, selectedCourseId, onSelectCourse, savedChats, activeChatId, onOpenChat, chatMessages, chatLoading, chatError, chatInput, onStartNewChat, onChatInputChange, onSendMessage } = props
   const [courses, setCourses] = useState<Course[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
   const [studentMarks, setStudentMarks] = useState<StudentMarks | null>(null)
@@ -27,7 +30,7 @@ export function StudentDashboard(props: Props) {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [view, setView] = useState<'courses' | 'course' | 'chat'>('courses')
+  const [view, setView] = useState<'courses' | 'course' | 'chat' | 'projects'>('courses')
   const selectedCourse = courses.find((course) => course.course_id === selectedCourseId)
   async function loadCourses() {
     setLoading(true); setError('')
@@ -35,7 +38,10 @@ export function StudentDashboard(props: Props) {
     catch (e) { setError(e instanceof Error ? e.message : 'Could not load courses.') }
     finally { setLoading(false) }
   }
+  // Existing data-loading effects synchronize this page with authenticated API data.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadCourses() }, [])
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!selectedCourseId) { setMaterials([]); setStudentMarks(null); return }
     let active = true
@@ -43,6 +49,7 @@ export function StudentDashboard(props: Props) {
     apiFetch(`/api/academic-evaluation/student/${encodeURIComponent(selectedCourseId)}`).then(read<StudentMarks>).then((data) => { if (active) setStudentMarks(data) }).catch((e) => { if (active) setStudentMarks(null); if (active) setError(e instanceof Error ? e.message : 'Could not load your marks.') })
     return () => { active = false }
   }, [selectedCourseId])
+  /* eslint-enable react-hooks/set-state-in-effect */
   async function joinCourse(event: React.FormEvent) {
     event.preventDefault(); if (!enrollmentCode.trim() || busy) return
     setBusy(true); setError('')
@@ -52,9 +59,28 @@ export function StudentDashboard(props: Props) {
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not join course.') }
     finally { setBusy(false) }
   }
-  if (view === 'chat' && selectedCourse) return <section className="student-dashboard"><StudentSidebar currentUser={currentUser} savedChats={savedChats} activeChatId={activeChatId} onStartNewChat={onStartNewChat} onOpenChat={onOpenChat}/><div className="student-chat-column"><button className="secondary-button course-back" onClick={() => setView('course')}><ArrowLeft size={16}/> Back to {selectedCourse.name}</button><TutorChat onLogout={onLogout} chatMessages={chatMessages} chatLoading={chatLoading} chatError={chatError} chatInput={chatInput} onStartNewChat={onStartNewChat} onChatInputChange={onChatInputChange} onSendMessage={onSendMessage}/></div></section>
+  if (view === 'projects') return <section className="student-projects-page">
+    <header className="student-home-header"><div><span className="eyebrow">STUDENT WORKSPACE</span><h1>My Projects</h1><p>Projects assigned to you across your enrolled courses.</p></div><div className="project-header-actions"><button className="secondary-button" onClick={() => setView(selectedCourse ? 'course' : 'courses')}>Back to {selectedCourse ? 'course' : 'my courses'}</button><button className="secondary-button" onClick={onLogout}>Log out</button></div></header>
+    <StudentProjectTracker onBack={() => setView(selectedCourse ? 'course' : 'courses')}/>
+  </section>
+  if (view === 'chat' && selectedCourse) return <section className="student-dashboard student-tutor-dashboard">
+    <StudentSidebar
+      currentUser={currentUser}
+      savedChats={savedChats}
+      activeChatId={activeChatId}
+      onStartNewChat={onStartNewChat}
+      onOpenChat={onOpenChat}
+    />
+    <main className="student-chat-column student-tutor-column">
+      <div className="student-tutor-toolbar">
+        <button className="secondary-button course-back" onClick={() => setView('course')}><ArrowLeft size={16}/> Back to {selectedCourse.name}</button>
+        <button className="secondary-button" onClick={onLogout}>Log out</button>
+      </div>
+      <TutorChat onLogout={onLogout} chatMessages={chatMessages} chatLoading={chatLoading} chatError={chatError} chatInput={chatInput} onStartNewChat={onStartNewChat} onChatInputChange={onChatInputChange} onSendMessage={onSendMessage}/>
+    </main>
+  </section>
   return <section className="student-home">
-    <header className="student-home-header"><div><span className="eyebrow">STUDENT WORKSPACE</span><h1>{view === 'course' && selectedCourse ? selectedCourse.name : `Welcome${currentUser?.email ? `, ${currentUser.email.split('@')[0]}` : ''}`}</h1><p>{view === 'course' ? selectedCourse?.description || 'Your course learning space.' : 'Choose a course to continue learning.'}</p></div><button className="secondary-button" onClick={onLogout}>Log out</button></header>
+    <header className="student-home-header"><div><span className="eyebrow">STUDENT WORKSPACE</span><h1>{view === 'course' && selectedCourse ? selectedCourse.name : `Welcome${currentUser?.email ? `, ${currentUser.email.split('@')[0]}` : ''}`}</h1><p>{view === 'course' ? selectedCourse?.description || 'Your course learning space.' : 'Choose a course to continue learning.'}</p></div><div className="project-header-actions">{view === 'courses' && <button className="secondary-button" onClick={() => setView('projects')}><ClipboardList size={15}/> My Projects</button>}<button className="secondary-button" onClick={onLogout}>Log out</button></div></header>
     {error && <div className="feedback error-feedback">{error}<button className="feedback-close" onClick={() => setError('')}>×</button></div>}
     {view === 'courses' ? <>
       <div className="student-section-heading"><div><h2>My courses</h2><p>Open a course to access its resources and AI tutor.</p></div><button className="secondary-button" onClick={() => void loadCourses()}><RefreshCw size={15}/> Refresh</button></div>
@@ -62,8 +88,11 @@ export function StudentDashboard(props: Props) {
       <form className="join-course-form" onSubmit={joinCourse}><div><strong>Join a course</strong><span>Enter the enrollment code provided by your professor.</span></div><input value={enrollmentCode} onChange={(e) => setEnrollmentCode(e.target.value.toUpperCase())} placeholder="Enrollment code" aria-label="Enrollment code"/><button className="primary-button" disabled={busy || !enrollmentCode.trim()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>} Join course</button></form>
     </> : selectedCourse && <>
       <button className="secondary-button course-back" onClick={() => setView('courses')}><ArrowLeft size={16}/> All courses</button>
-      <div className="course-feature-grid"><article className="course-feature-card"><span className="course-feature-icon"><FileText size={22}/></span><h3>Course materials</h3><p>Lecture notes and presentations shared by your professor.</p><strong>{materials.length} resources</strong></article><article className="course-feature-card"><span className="course-feature-icon"><ClipboardList size={22}/></span><h3>My test marks</h3><p>Your uploaded assessment marks.</p><strong>{Object.keys(studentMarks?.assessments ?? {}).length} assessments recorded</strong></article><article className="course-feature-card"><span className="course-feature-icon"><Bot size={22}/></span><h3>AI Tutor</h3><p>Ask questions grounded in this course's uploaded materials.</p><button className="primary-button" onClick={() => setView('chat')}><MessageCircle size={16}/> Open Tutor Chat</button></article></div>
-
+      <StudentProjectWidget courseId={selectedCourseId} onOpen={() => setView('projects')}/>
+      <div className="course-feature-grid course-summary-grid">
+        <article className="course-feature-card"><span className="course-feature-icon"><FileText size={22}/></span><h3>Course materials</h3><p>Lecture notes and presentations shared by your professor.</p><strong>{materials.length} resources</strong></article>
+        <article className="course-feature-card"><span className="course-feature-icon"><ClipboardList size={22}/></span><h3>My academic record</h3><p>Your assessment marks for this course.</p><strong>{Object.keys(studentMarks?.assessments ?? {}).length} assessments recorded</strong></article>
+      </div>
       <section className="course-materials-panel"><div className="student-section-heading"><div><h2>My academic record</h2><p>Only your own assessment marks are shown here. Missing marks are displayed as —.</p></div></div>
         {studentMarks && Object.keys(studentMarks.assessments).length ? <div className="academic-table-wrap"><table className="academic-table"><thead><tr><th>Assessment</th><th>Marks</th><th>Maximum</th></tr></thead><tbody>{Object.entries(studentMarks.assessments).map(([key, item])=><tr key={key}><td>{item.name}</td><td>{item.marks ?? '—'}</td><td>{item.maximum_marks ?? '—'}</td></tr>)}</tbody></table></div> : <p>No assessment marks have been uploaded for you yet.</p>}
       </section>

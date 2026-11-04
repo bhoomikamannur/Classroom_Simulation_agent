@@ -80,3 +80,53 @@ export type AuthUser = {
   roll_number?: string | null
   is_active?: boolean
 }
+
+export type AcademicAssessment = {
+  name: string
+  weight: string
+  maximum: string
+}
+
+export type AcademicStudentResult = {
+  student_id: string
+  weighted_percentage: number | null
+  pass_status: 'pass' | 'fail' | 'provisional' | 'not_assessed' | string
+  is_complete: boolean
+  message: string
+  missing_assessments: string[]
+}
+
+export type AcademicEvaluationResponse = {
+  course_id: string
+  number_of_students: number
+  student_results: AcademicStudentResult[]
+  grading_policy?: Record<string, unknown>
+}
+
+export type ClassAssessmentStats = {
+  mean_percentage: number | null
+  median_percentage: number | null
+  missing_marks: number
+  students_with_marks: number
+  mean_raw_marks?: number | null
+  median_raw_marks?: number | null
+}
+
+export type ClassStudentAssessment = {
+  marks: number | null
+  maximum_marks: number | null
+  percentage: number | null
+}
+
+export type ClassStudentSummary = {
+  student_id: string
+  assessments: Record<string, ClassStudentAssessment>
+  descriptive_average_percentage: number | null
+  relative_performance: string
+}
+
+export type ClassAnalyticsResponse = {
+  number_of_students: number
+  class_assessments: Record<string, ClassAssessmentStats>
+  student_summaries: ClassStudentSummary[]
+}

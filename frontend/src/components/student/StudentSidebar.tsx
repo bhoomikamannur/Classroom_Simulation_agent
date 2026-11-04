@@ -27,7 +27,7 @@ export function StudentSidebar({ currentUser, savedChats, activeChatId, onStartN
 
             <div className="student-sidebar-label">LEARNING SPACE</div>
 
-            <button className="student-nav active">
+            <button type="button" className="student-nav active">
               <MessageCircle size={17} />
               AI Tutor
             </button>

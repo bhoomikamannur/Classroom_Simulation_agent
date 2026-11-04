@@ -2241,3 +2241,115 @@
 .academic-mark-maximum { color:#8992a7; font-size:10px; }
 .academic-upload-item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid #e7eaf2; }
 .academic-upload-item:last-child { border-bottom:0; }
+
+
+/* Project Tracker v2: persistent student workspace and compact professor student picker */
+.student-projects-column { padding: 34px clamp(18px, 3vw, 42px) 56px; background: #f7f8fc; overflow-x: hidden; }
+.student-projects-column > .student-home-header { width: 100%; max-width: 1180px; margin: 0 auto 24px; }
+.student-projects-column > .project-tracker-page { width: 100%; max-width: 1180px; margin: 0 auto; }
+.project-student-picker { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 360px); align-items: end; gap: 16px 24px; margin-top: 22px; padding: 20px; }
+.project-student-picker h3 { margin: 5px 0; }
+.project-student-picker p { margin: 0; color: #64748b; font-size: 13px; }
+.project-student-select-label { display: grid; gap: 7px; color: #334155; font-size: 12px; font-weight: 700; }
+.project-student-select-label select { width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid #d8dfeb; border-radius: 10px; background: #fff; color: #172033; font: inherit; }
+.project-roster-count { grid-column: 1 / -1; padding-top: 12px; border-top: 1px solid #e8edf4; color: #64748b; font-size: 12px; }
+.project-review-panel { margin-top: 18px; }
+@media (max-width: 760px) {
+  .project-student-picker { grid-template-columns: 1fr; }
+  .project-roster-count { grid-column: auto; }
+  .student-projects-column { padding: 22px 14px 36px; }
+}
+
+
+/* Project Tracker / course workspace layout refinements */
+.stat-card-action {
+  width: 100%;
+  border: 1px solid var(--border, #e1e7f0);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  background: #fff;
+}
+.stat-card-action:hover { border-color: #aaa4ff; transform: translateY(-1px); }
+.course-overview-panel { display: grid; gap: 20px; }
+.course-overview-panel .stats-grid { margin-top: 0; }
+.student-course-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 22px 0;
+  padding: 22px 24px;
+  border: 1px solid #e0e6f0;
+  border-radius: 16px;
+  background: #fff;
+}
+.student-course-actions h2 { margin: 5px 0 4px; font-size: 19px; }
+.student-course-actions p { margin: 0; color: #68758c; font-size: 13px; }
+.student-course-action-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+.student-projects-page, .student-chat-page {
+  width: min(1180px, calc(100% - 48px));
+  margin: 34px auto 64px;
+  min-height: calc(100vh - 190px);
+}
+.student-projects-page > .student-home-header { margin-bottom: 24px; }
+.student-chat-page { display: flex; flex-direction: column; gap: 18px; }
+.student-chat-page-header { display: flex; justify-content: space-between; align-items: center; }
+.student-projects-page .project-tracker-page { width: 100%; }
+.dashboard-sidebar .sidebar-link { width: 100%; }
+@media (max-width: 760px) {
+  .student-course-actions { align-items: flex-start; flex-direction: column; }
+  .student-course-action-buttons { width: 100%; }
+  .student-course-action-buttons button { flex: 1; }
+  .student-projects-page, .student-chat-page { width: calc(100% - 28px); margin-top: 22px; }
+}
+
+
+/* Project Tracker improvements: prominent student course widget and professor checkpoint controls */
+.student-project-widget {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  margin: 22px 0 26px;
+  padding: 22px 24px;
+  border: 1px solid #d9d5ff;
+  border-radius: 18px;
+  background: linear-gradient(110deg, #f0edff 0%, #ffffff 68%);
+  box-shadow: 0 8px 24px rgba(78, 61, 160, 0.08);
+}
+.student-project-widget-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border-radius: 15px;
+  color: #6750d8;
+  background: #e4dfff;
+}
+.student-project-widget-content h2 { margin: 5px 0 6px; font-size: 20px; color: #202944; }
+.student-project-widget-content p { margin: 0; max-width: 760px; color: #64708a; line-height: 1.55; font-size: 13px; }
+.student-project-widget-meta { display: flex; flex-wrap: wrap; gap: 10px 18px; margin-top: 12px; color: #5144a6; font-size: 12px; }
+.student-project-widget-meta span { display: inline-flex; align-items: center; gap: 6px; }
+.student-project-widget-action { white-space: nowrap; min-height: 44px; }
+.project-checkpoint-list { margin: 20px 0; padding: 22px; }
+.project-checkpoint-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; padding: 16px 0; border-top: 1px solid #e8edf5; }
+.project-checkpoint-row strong { color: #202944; }
+.project-checkpoint-row p { margin: 5px 0; color: #64708a; font-size: 13px; }
+.project-checkpoint-row small { color: #64708a; }
+.project-checkpoint-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.project-checkpoint-edit { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.project-checkpoint-edit label { display: grid; gap: 6px; font-size: 12px; font-weight: 650; }
+.project-checkpoint-edit label:nth-child(3), .project-checkpoint-edit > div { grid-column: 1 / -1; }
+.project-checkpoint-edit input, .project-checkpoint-edit textarea { width: 100%; padding: 10px 12px; border: 1px solid #d8dfeb; border-radius: 9px; font: inherit; }
+.project-checkpoint-edit > div { display: flex; gap: 8px; }
+.danger-button { color: #b42318; }
+@media (max-width: 720px) {
+  .student-project-widget { grid-template-columns: 48px minmax(0, 1fr); padding: 17px; gap: 12px; }
+  .student-project-widget-icon { width: 46px; height: 46px; }
+  .student-project-widget-action { grid-column: 1 / -1; width: 100%; }
+  .project-checkpoint-row { flex-direction: column; }
+  .project-checkpoint-edit { grid-template-columns: 1fr; }
+  .project-checkpoint-edit label:nth-child(3), .project-checkpoint-edit > div { grid-column: auto; }
+}

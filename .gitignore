@@ -10,3 +10,7 @@ backend/data/chroma/*
 !backend/data/chroma/.gitkeep
 backend/data/raw/*
 !backend/data/raw/.gitkeep
+frontend/node_modules/
+frontend/dist/
+backend/data/project_uploads/*
+!backend/data/project_uploads/.gitkeep
