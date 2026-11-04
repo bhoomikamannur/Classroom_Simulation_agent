@@ -92,6 +92,8 @@ def _require_project_owner(course_project: dict, user: dict):
 
 
 def _require_student_project_access(student_project: dict, user: dict):
+    if student_project.get("status") == "archived":
+        raise HTTPException(status_code=410, detail="This project has been archived by the professor.")
     if user.get("role") == "student":
         if student_project.get("student_id") != user.get("user_id"):
             raise HTTPException(status_code=404, detail="Project not found.")
@@ -231,7 +233,7 @@ def list_course_projects(course_id: str, user: dict = Depends(require_role("prof
     _ensure_indexes()
     get_accessible_course(course_id, user)
     projects = list(_db()["course_projects"].find(
-        {"course_id": course_id, "professor_id": user["user_id"]}, {"_id": 0}
+        {"course_id": course_id, "professor_id": user["user_id"], "is_deleted": {"$ne": True}}, {"_id": 0}
     ).sort("created_at", DESCENDING))
     for project in projects:
         _sync_project_assignments(project)
@@ -246,6 +248,32 @@ def list_course_projects(course_id: str, user: dict = Depends(require_role("prof
     return {"course_id": course_id, "projects": projects}
 
 
+@router.delete("/projects/{project_id}")
+def archive_course_project(project_id: str, user: dict = Depends(require_role("professor"))):
+    """Soft-delete a course project while retaining submissions and audit history."""
+    project = _course_project_or_404(project_id)
+    _require_project_owner(project, user)
+    if project.get("is_deleted"):
+        return {"message": "Project is already deleted."}
+    now = _now()
+    _db()["course_projects"].update_one(
+        {"project_id": project_id},
+        {"$set": {"status": "archived", "is_deleted": True, "deleted_at": now,
+                  "deleted_by": user["user_id"], "updated_at": now}},
+    )
+    instances = list(_db()["student_projects"].find(
+        {"course_project_id": project_id}, {"_id": 0, "student_project_id": 1, "course_id": 1}
+    ))
+    for instance in instances:
+        _db()["student_projects"].update_one(
+            {"student_project_id": instance["student_project_id"]},
+            {"$set": {"status": "archived", "updated_at": now}},
+        )
+        _log(instance["student_project_id"], project_id, instance["course_id"], user,
+             "project_archived", "Professor archived the course project")
+    return {"message": "Project deleted from active tracking. Submission and activity history were retained."}
+
+
 @router.get("/mine")
 def list_my_projects(user: dict = Depends(require_role("student"))):
     _ensure_indexes()
@@ -254,7 +282,7 @@ def list_my_projects(user: dict = Depends(require_role("student"))):
     course_ids = [row["course_id"] for row in enrollments]
     for course_project in _db()["course_projects"].find({"course_id": {"$in": course_ids}, "status": "published"}, {"_id": 0}):
         _sync_project_assignments(course_project)
-    projects = list(_db()["student_projects"].find({"student_id": user["user_id"]}, {"_id": 0}).sort("updated_at", DESCENDING))
+    projects = list(_db()["student_projects"].find({"student_id": user["user_id"], "status": {"$ne": "archived"}}, {"_id": 0}).sort("updated_at", DESCENDING))
     for item in projects:
         item["course_project"] = _db()["course_projects"].find_one({"project_id": item["course_project_id"]}, {"_id": 0, "objectives": 1, "requirements": 1, "description": 1, "status": 1, "brief_file": 1})
         if item.get("course_project") and item["course_project"].get("brief_file"):
@@ -263,6 +291,7 @@ def list_my_projects(user: dict = Depends(require_role("student"))):
         item["submissions"] = list(_db()["project_submissions"].find({"student_project_id": item["student_project_id"]}, {"_id": 0, "file.file_path": 0}).sort("created_at", DESCENDING))
         for submission in item["submissions"]:
             submission["file"] = _public_file(submission.get("file"))
+            submission["files"] = [_public_file(item) for item in submission.get("files", [])] or ([submission["file"]] if submission.get("file") else [])
         item["latest_submission"] = item["submissions"][0] if item["submissions"] else None
         item["reviews"] = list(_db()["project_reviews"].find({"student_project_id": item["student_project_id"]}, {"_id": 0}).sort("created_at", DESCENDING))
     return {"projects": projects}
@@ -275,7 +304,10 @@ def list_project_students(project_id: str, user: dict = Depends(require_role("pr
     _require_project_owner(project, user)
     instances = list(_db()["student_projects"].find({"course_project_id": project_id}, {"_id": 0}).sort("roll_number", ASCENDING))
     for instance in instances:
-        instance["submissions"] = list(_db()["project_submissions"].find({"student_project_id": instance["student_project_id"]}, {"_id": 0, "file.file_path": 0}).sort("created_at", DESCENDING))
+        instance["submissions"] = list(_db()["project_submissions"].find({"student_project_id": instance["student_project_id"]}, {"_id": 0, "file.file_path": 0, "files.file_path": 0}).sort("created_at", DESCENDING))
+        for submission in instance["submissions"]:
+            submission["file"] = _public_file(submission.get("file"))
+            submission["files"] = [_public_file(item) for item in submission.get("files", [])] or ([submission["file"]] if submission.get("file") else [])
         instance["reviews"] = list(_db()["project_reviews"].find({"student_project_id": instance["student_project_id"]}, {"_id": 0}).sort("created_at", ASCENDING))
     milestones = list(_db()["project_milestones"].find(
         {"course_project_id": project_id, "is_deleted": {"$ne": True}}, {"_id": 0}
@@ -410,7 +442,7 @@ async def submit_proposal(student_project_id: str, description: str = Form(defau
 
 
 @router.post("/student-projects/{student_project_id}/submissions", status_code=201)
-async def submit_deliverable(student_project_id: str, description: str = Form(default=""), milestone_id: str | None = Form(default=None), file: UploadFile = File(...), user: dict = Depends(require_role("student"))):
+async def submit_deliverable(student_project_id: str, description: str = Form(default=""), milestone_id: str | None = Form(default=None), files: list[UploadFile] = File(default=[]), file: UploadFile | None = File(default=None), user: dict = Depends(require_role("student"))):
     _ensure_indexes()
     instance = _student_project_or_404(student_project_id)
     _require_student_project_access(instance, user)
@@ -420,7 +452,15 @@ async def submit_deliverable(student_project_id: str, description: str = Form(de
         milestone = _db()["project_milestones"].find_one({"milestone_id": milestone_id, "course_project_id": instance["course_project_id"]})
         if not milestone:
             raise HTTPException(status_code=404, detail="Milestone not found for this project.")
-    stored = await _save_upload(file, user)
+    uploads = list(files or [])
+    if file is not None:
+        uploads.append(file)
+    if not uploads:
+        raise HTTPException(status_code=400, detail="Choose at least one deliverable file.")
+    if len(uploads) > 10:
+        raise HTTPException(status_code=400, detail="You can submit up to 10 files at a time.")
+    stored_files = [await _save_upload(upload, user) for upload in uploads]
+    stored = stored_files[0]
     version_query = {
         "student_project_id": student_project_id, "submission_type": "progress",
         "milestone_id": milestone_id,
@@ -431,13 +471,13 @@ async def submit_deliverable(student_project_id: str, description: str = Form(de
         "course_project_id": instance["course_project_id"], "course_id": instance["course_id"],
         "student_id": user["user_id"], "milestone_id": milestone_id,
         "submission_type": "progress", "version": version, "description": description.strip(),
-        "file": stored, "status": "submitted", "created_at": _now(),
+        "file": stored, "files": stored_files, "status": "submitted", "created_at": _now(),
     }
     _db()["project_submissions"].insert_one(submission)
     submission.pop("_id", None)
     _db()["student_projects"].update_one({"student_project_id": student_project_id}, {"$set": {"status": "submission_under_review", "updated_at": _now()}})
     _log(student_project_id, instance["course_project_id"], instance["course_id"], user, "progress_submitted", stored["filename"])
-    return {"message": "Project deliverable submitted successfully.", "submission": {**submission, "file": _public_file(stored)}}
+    return {"message": "Project deliverable submitted successfully.", "submission": {**submission, "file": _public_file(stored), "files": [_public_file(item) for item in stored_files]}}
 
 
 @router.get("/student-projects/{student_project_id}/submissions")
@@ -448,6 +488,7 @@ def list_submissions(student_project_id: str, user: dict = Depends(get_current_u
     records = list(_db()["project_submissions"].find({"student_project_id": student_project_id}, {"_id": 0, "file.file_path": 0}).sort("created_at", DESCENDING))
     for record in records:
         record["file"] = _public_file(record.get("file"))
+        record["files"] = [_public_file(item) for item in record.get("files", [])] or ([record["file"]] if record.get("file") else [])
     return {"submissions": records}
 
 
@@ -549,11 +590,17 @@ def list_activity(student_project_id: str, user: dict = Depends(get_current_user
 @router.get("/files/{file_id}")
 def download_project_file(file_id: str, user: dict = Depends(get_current_user)):
     _ensure_indexes()
-    submission = _db()["project_submissions"].find_one({"file.file_id": file_id}, {"_id": 0})
+    submission = _db()["project_submissions"].find_one(
+        {"$or": [{"file.file_id": file_id}, {"files.file_id": file_id}]}, {"_id": 0}
+    )
     if submission:
         instance = _student_project_or_404(submission["student_project_id"])
         _require_student_project_access(instance, user)
-        file_record = submission["file"]
+        file_record = next((item for item in submission.get("files", []) if item.get("file_id") == file_id), None)
+        if file_record is None and submission.get("file", {}).get("file_id") == file_id:
+            file_record = submission["file"]
+        if file_record is None:
+            raise HTTPException(status_code=404, detail="File not found.")
     else:
         project = _db()["course_projects"].find_one({"brief_file.file_id": file_id}, {"_id": 0})
         if not project:
