@@ -6,10 +6,13 @@ import pytest
 
 from backend.app.agents.project_analysis_agent import analyse_project_submission
 
-pytestmark = pytest.mark.skipif(
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
     os.getenv("RUN_PROJECT_AGENT_LIVE") != "1",
     reason="Set RUN_PROJECT_AGENT_LIVE=1 to exercise the configured Ollama model.",
-)
+    ),
+]
 
 
 @pytest.mark.parametrize(

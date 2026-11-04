@@ -1,3 +1,14 @@
+import os
+import pytest
+
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        os.getenv("RUN_INTERVENTION_LIVE") != "1",
+        reason="Set RUN_INTERVENTION_LIVE=1 to run live Intervention Agent tests.",
+    ),
+]
+
 
 import json
 

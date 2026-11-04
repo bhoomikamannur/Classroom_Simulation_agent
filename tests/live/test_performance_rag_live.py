@@ -1,4 +1,15 @@
 
+import os
+import pytest
+
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        os.getenv("RUN_PERFORMANCE_LIVE") != "1",
+        reason="Set RUN_PERFORMANCE_LIVE=1 to run live Ollama/RAG tests.",
+    ),
+]
+
 from backend.app.agents.performance_agent import PerformanceAgent
 from backend.app.rag.course_context import build_course_context
 
@@ -10,7 +21,7 @@ def test_live_rag_retrieval_and_performance_diagnosis():
     )
 
     # Verify actual retrieval from the existing ChromaDB collection.
-    course_context = build_course_context(query, course_id="3ce7921b-cb0f-476f-b7d4-de62fc55dd12")
+    course_context = build_course_context(query, course_id=os.getenv("PERFORMANCE_LIVE_COURSE_ID", "3ce7921b-cb0f-476f-b7d4-de62fc55dd12"))
 
     assert course_context, (
         "No course context was retrieved. Check the ChromaDB collection "
@@ -26,7 +37,7 @@ def test_live_rag_retrieval_and_performance_diagnosis():
     result = agent.analyze(
         student_id="23bcs030",
         course_name="Introduction to Agentic AI",
-        course_id="3ce7921b-cb0f-476f-b7d4-de62fc55dd12",
+        course_id=os.getenv("PERFORMANCE_LIVE_COURSE_ID", "3ce7921b-cb0f-476f-b7d4-de62fc55dd12"),
         interactions=[
             {
                 "role": "user",

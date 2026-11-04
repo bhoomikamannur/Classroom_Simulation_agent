@@ -955,6 +955,7 @@ class PerformanceAgent:
         interactions: list[dict[str, str]],
         course_context: str | None = None,
         course_id: str | None = None,
+        previous_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
 
         # ------------------------------------------------------------
@@ -1072,6 +1073,9 @@ COURSE NAME:
 
 COURSE REFERENCE:
 {course_context}
+
+PREVIOUS CONCEPT PROFILE (LONGITUDINAL CONTEXT ONLY — NOT NEW EVIDENCE):
+{json.dumps(previous_profile or {}, ensure_ascii=False, default=str)[:5000]}
 
 STUDENT EVIDENCE:
 {student_evidence_text}

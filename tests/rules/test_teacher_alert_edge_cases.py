@@ -99,7 +99,3 @@ def test_duplicate_evidence_does_not_change_priority():
 
     assert result["teacher_alert"] is True
     assert result["priority"] == "medium"
-
-
-if __name__ == "__main__":
-    raise SystemExit(pytest.main([__file__, "-v"]))

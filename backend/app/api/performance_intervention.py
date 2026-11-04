@@ -82,15 +82,15 @@ def analyze_and_recommend(
 
 
     try:
-        return orchestrator.execute(
-            operation="performance_intervention",
-            actor=current_user,
-            payload={
-                "student_id": student_id,
-                "course_context": request.course_context,
-                "interaction_limit": request.interaction_limit,
-            },
-            course=course,
+        # Both the legacy manual endpoint and /reanalyze now delegate to the
+        # exact same pending-evidence analysis pipeline.
+        from backend.app.services.incremental_performance import process_all_pending_analysis
+        return process_all_pending_analysis(
+            student_id=student_id,
+            course_id=request.course_id,
+            course_name=course.get("name", "Course"),
+            professor_id=course["professor_id"],
+            force=True,
         )
     except LLMTimeoutError as exc:
         raise HTTPException(
@@ -149,9 +149,9 @@ def manually_reanalyze(
     """Professor-triggered analysis of pending evidence, even below threshold."""
     course = get_accessible_course(request.course_id, current_user)
     _, student_id = _resolve_enrolled_student(request.roll_number, request.course_id)
-    from backend.app.services.incremental_performance import process_pending_analysis
+    from backend.app.services.incremental_performance import process_all_pending_analysis
     try:
-        return process_pending_analysis(
+        return process_all_pending_analysis(
             student_id=student_id,
             course_id=request.course_id,
             course_name=course.get("name", "Course"),

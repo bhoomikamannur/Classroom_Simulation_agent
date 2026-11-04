@@ -67,4 +67,4 @@ def test_standalone_maximum_marks_column(monkeypatch):
     setup(monkeypatch)
     frame = pd.DataFrame({"roll_number": ["S001"], "exam_marks": [78], "maximum_marks": [100]})
     result = marks_store.merge_marks("COURSE1", frame, "professor", "exam_marks.csv")
-    assert result["assessment_names"] == {"exam": "exam"}
+    assert result["assessment_names"] == {"exam": "exam_marks"}

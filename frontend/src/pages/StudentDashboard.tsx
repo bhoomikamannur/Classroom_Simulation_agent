@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, BookOpen, BookOpenCheck, ClipboardList, FileText, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpen, BookOpenCheck, Bot, ClipboardList, FileText, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 import type { AuthUser, ChatMessage, SavedTutorChat } from '../types'
 import { TutorChat } from '../components/student/TutorChat'
 import { StudentSidebar } from '../components/student/StudentSidebar'
@@ -89,6 +89,18 @@ export function StudentDashboard(props: Props) {
     </> : selectedCourse && <>
       <button className="secondary-button course-back" onClick={() => setView('courses')}><ArrowLeft size={16}/> All courses</button>
       <StudentProjectWidget courseId={selectedCourseId} onOpen={() => setView('projects')}/>
+      <section className="student-project-widget student-tutor-entry-widget" aria-label="AI Tutor">
+        <div className="student-project-widget-icon student-tutor-entry-icon"><Bot size={26}/></div>
+        <div className="student-project-widget-content">
+          <span className="panel-kicker">YOUR AI LEARNING ASSISTANT</span>
+          <h2>AI Tutor</h2>
+          <p>Ask questions about course concepts, get step-by-step explanations, and work through problems with your personal AI tutor.</p>
+          <div className="student-project-widget-meta"><span><Bot size={14}/> Personalized learning support</span><span><BookOpen size={14}/> Continue learning anytime</span></div>
+        </div>
+        <button type="button" className="primary-button student-project-widget-action" onClick={() => setView('chat')}>
+          Open AI Tutor <ArrowRight size={16}/>
+        </button>
+      </section>
       <div className="course-feature-grid course-summary-grid">
         <article className="course-feature-card"><span className="course-feature-icon"><FileText size={22}/></span><h3>Course materials</h3><p>Lecture notes and presentations shared by your professor.</p><strong>{materials.length} resources</strong></article>
         <article className="course-feature-card"><span className="course-feature-icon"><ClipboardList size={22}/></span><h3>My academic record</h3><p>Your assessment marks for this course.</p><strong>{Object.keys(studentMarks?.assessments ?? {}).length} assessments recorded</strong></article>

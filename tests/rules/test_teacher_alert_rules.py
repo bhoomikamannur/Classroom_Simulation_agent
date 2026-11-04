@@ -77,20 +77,3 @@ def test_no_alert_when_only_unconfirmed_data_is_missing():
     assert result["teacher_alert"] is False
     assert result["priority"] == "none"
     assert result["data_incomplete"] is True
-
-
-if __name__ == "__main__":
-    tests = [
-        test_neither_condition,
-        test_persistent_difficulty_only,
-        test_poor_academic_performance_only,
-        test_both_conditions_high_priority,
-        test_missing_academic_data,
-        test_no_alert_when_only_unconfirmed_data_is_missing,
-    ]
-
-    for test in tests:
-        test()
-        print(f"PASS: {test.__name__}")
-
-    print(f"\nAll {len(tests)} teacher-alert rule tests passed.")
