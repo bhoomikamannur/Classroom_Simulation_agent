@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight, BookOpen, BookOpenCheck, Bot, ClipboardList, FileText, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpen, BookOpenCheck, Bot, ClipboardList, Download, Eye, FileText, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 import type { AuthUser, ChatMessage, SavedTutorChat } from '../types'
 import { TutorChat } from '../components/student/TutorChat'
 import { StudentSidebar } from '../components/student/StudentSidebar'
 import { StudentProjectTracker } from '../components/student-project-tracker/StudentProjectTracker'
 import { StudentProjectWidget } from '../components/student-project-tracker/StudentProjectWidget'
-import { apiFetch } from '../services/api'
+import { apiFetch, downloadCourseDocument, openCourseDocument } from '../services/api'
 
 type Course = { course_id: string; name: string; description: string; professor_id: string; enrolled_at?: string }
 type Material = { document_id: string; filename: string; file_type: string; file_size: number; status: string; uploaded_at: string; pages_or_slides_extracted?: number; chunk_count?: number }
@@ -109,7 +109,7 @@ export function StudentDashboard(props: Props) {
         {studentMarks && Object.keys(studentMarks.assessments).length ? <div className="academic-table-wrap"><table className="academic-table"><thead><tr><th>Assessment</th><th>Marks</th><th>Maximum</th></tr></thead><tbody>{Object.entries(studentMarks.assessments).map(([key, item])=><tr key={key}><td>{item.name}</td><td>{item.marks ?? '—'}</td><td>{item.maximum_marks ?? '—'}</td></tr>)}</tbody></table></div> : <p>No assessment marks have been uploaded for you yet.</p>}
       </section>
       <section className="course-materials-panel"><div className="student-section-heading"><div><h2>Learning materials</h2><p>Resources available for this course.</p></div><button className="secondary-button" onClick={() => { setMaterials([]); void apiFetch(`/api/documents/course/${encodeURIComponent(selectedCourseId)}`).then((r) => read<{documents: Material[]}>(r)).then((d) => setMaterials(d.documents)).catch((e) => setError(e.message)) }}><RefreshCw size={15}/> Refresh</button></div>
-      {materials.length ? materials.map((item) => <div className="student-material-row" key={item.document_id}><FileText size={20}/><div><strong>{item.filename}</strong><small>{item.file_type.toUpperCase()} · {item.pages_or_slides_extracted ?? 0} pages/slides · {item.chunk_count ?? 0} indexed sections</small></div><span className={`material-status ${item.status}`}>{item.status}</span></div>) : <div className="empty-materials">No course materials have been uploaded yet.</div>}</section>
+      {materials.length ? materials.map((item) => <div className="student-material-row" key={item.document_id}><FileText size={20}/><div><strong>{item.filename}</strong><small>{item.file_type.toUpperCase()} · {item.pages_or_slides_extracted ?? 0} pages/slides · {item.chunk_count ?? 0} indexed sections</small></div><span className={`material-status ${item.status}`}>{item.status}</span><button className="secondary-button" type="button" onClick={() => void openCourseDocument(item.document_id).catch((e) => setError(e instanceof Error ? e.message : 'Could not open document.'))}><Eye size={15}/> View</button><button className="secondary-button" type="button" onClick={() => void downloadCourseDocument(item.document_id, item.filename).catch((e) => setError(e instanceof Error ? e.message : 'Could not download document.'))}><Download size={15}/> Download</button></div>) : <div className="empty-materials">No course materials have been uploaded yet.</div>}</section>
     </>}
   </section>
 }

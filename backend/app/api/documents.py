@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from pymongo import ASCENDING, DESCENDING
 
 from backend.app.api.auth import get_current_user, require_role
@@ -203,6 +204,70 @@ def list_course_documents(
         .sort("uploaded_at", DESCENDING)
     )
     return {"course_id": course_id, "course_name": course.get("name"), "documents": documents}
+
+
+def _authorized_document_file(document_id: str, current_user: dict) -> dict:
+    """Fetch a stored document only after validating access to its active course."""
+    document = _documents().find_one({"document_id": document_id}, {"_id": 0})
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    course = get_accessible_course(document["course_id"], current_user)
+    if document.get("professor_id") != course.get("professor_id"):
+        raise HTTPException(status_code=404, detail="Document not found.")
+
+    relative_path = document.get("file_path")
+    if not relative_path:
+        raise HTTPException(status_code=404, detail="Original file is unavailable.")
+
+    uploads_root = UPLOADS_DIR.resolve()
+    file_path = (BACKEND_ROOT / relative_path).resolve()
+    if file_path != uploads_root and uploads_root not in file_path.parents:
+        raise HTTPException(status_code=404, detail="Original file is unavailable.")
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Original file is unavailable.")
+
+    return {"document": document, "file_path": file_path}
+
+
+@router.get("/{document_id}/view")
+def view_document(
+    document_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Stream the original course document for in-browser viewing where supported."""
+    result = _authorized_document_file(document_id, current_user)
+    document = result["document"]
+    media_type = (
+        "application/pdf" if document.get("file_type") == "pdf"
+        else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+    return FileResponse(
+        result["file_path"],
+        media_type=media_type,
+        filename=document.get("filename", "course-material"),
+        content_disposition_type="inline",
+    )
+
+
+@router.get("/{document_id}/download")
+def download_document(
+    document_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Download the original uploaded course document."""
+    result = _authorized_document_file(document_id, current_user)
+    document = result["document"]
+    media_type = (
+        "application/pdf" if document.get("file_type") == "pdf"
+        else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+    return FileResponse(
+        result["file_path"],
+        media_type=media_type,
+        filename=document.get("filename", "course-material"),
+        content_disposition_type="attachment",
+    )
 
 
 @router.delete("/{document_id}")
