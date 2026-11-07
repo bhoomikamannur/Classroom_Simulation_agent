@@ -14,7 +14,7 @@ class LLMTimeoutError(TimeoutError):
     """Raised when Ollama does not complete a generation in time."""
 
 
-def generate(prompt: str) -> str:
+def generate(prompt: str, num_predict: int | None = None) -> str:
     try:
         response = requests.post(
             OLLAMA_URL,
@@ -23,7 +23,7 @@ def generate(prompt: str) -> str:
                 "prompt": prompt,
                 "stream": False,
                 "think": False,
-                "options": {"num_predict": OLLAMA_NUM_PREDICT, "temperature": 0.1},
+                "options": {"num_predict": num_predict or OLLAMA_NUM_PREDICT, "temperature": 0.1},
             },
             timeout=(OLLAMA_CONNECT_TIMEOUT_SECONDS, OLLAMA_TIMEOUT_SECONDS),
         )

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AlertCircle, RefreshCw, Upload, Trash2, ChevronDown, ChevronUp, Pencil, BarChart3, Users, CheckCircle2, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react'
+import { AlertCircle, RefreshCw, Upload, Trash2, ChevronDown, ChevronUp, Pencil, BarChart3, Users, CheckCircle2, AlertTriangle, TrendingUp } from 'lucide-react'
 import { apiFetch } from '../../services/api'
 
 type RegisterStudent = {

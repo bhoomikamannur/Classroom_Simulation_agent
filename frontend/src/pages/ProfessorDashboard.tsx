@@ -1,7 +1,9 @@
 import { useEffect, useState, type RefObject } from 'react'
-import { AlertCircle, ArrowLeft, ChartNoAxesCombined, CheckCircle2, ClipboardList, FileText, Files, Eye, Download, LayoutDashboard, LibraryBig, LoaderCircle, Plus, ShieldCheck, Trash2, Upload, X, RefreshCw, UserRound } from 'lucide-react'
+import { AlertCircle, ArrowLeft, ChartNoAxesCombined, CheckCircle2, ClipboardList, FileText, Files, Eye, Download, LayoutDashboard, LibraryBig, LoaderCircle, Plus, ShieldCheck, Trash2, Upload, X, RefreshCw, UserRound, CalendarRange, ShieldAlert } from 'lucide-react'
 import { AcademicEvaluationPanel } from '../components/professor/AcademicEvaluationPanel'
 import { PerformancePanel } from '../components/professor/PerformancePanel'
+import { LearningPlanPanel } from '../components/professor/LearningPlanPanel'
+import { RiskAssessmentPanel } from '../components/professor/RiskAssessmentPanel'
 import { ProfessorProjectTracker } from '../components/professor-project-tracker/ProfessorProjectTracker'
 import { apiFetch, downloadCourseDocument, openCourseDocument } from '../services/api'
 import type { AuthUser, UploadResult } from '../types'
@@ -24,7 +26,7 @@ export function ProfessorDashboard(props: Props) {
   const [courses, setCourses] = useState<Course[]>([])
   const [courseId, setCourseId] = useState('')
   const [courseOpen, setCourseOpen] = useState(false)
-  const [courseSection, setCourseSection] = useState<'overview' | 'students' | 'materials' | 'marks' | 'performance' | 'projects'>('overview')
+  const [courseSection, setCourseSection] = useState<'overview' | 'students' | 'materials' | 'marks' | 'performance' | 'projects' | 'learning' | 'risk'>('overview')
   const [showAllStudents, setShowAllStudents] = useState(false)
   const [documents, setDocuments] = useState<DocumentItem[]>([])
   const [students, setStudents] = useState<EnrolledStudent[]>([])
@@ -108,6 +110,8 @@ export function ProfessorDashboard(props: Props) {
       <button className={`sidebar-link ${courseSection === 'materials' ? 'active' : ''}`} onClick={() => setCourseSection('materials')}><Files size={18}/> Course materials</button>
       <button className={`sidebar-link ${courseSection === 'marks' ? 'active' : ''}`} onClick={() => setCourseSection('marks')}><ShieldCheck size={18}/> Academic evaluation</button>
       <button className={`sidebar-link ${courseSection === 'performance' ? 'active' : ''}`} onClick={() => setCourseSection('performance')}><ChartNoAxesCombined size={18}/> Performance analysis</button>
+      <button className={`sidebar-link ${courseSection === 'learning' ? 'active' : ''}`} onClick={() => setCourseSection('learning')}><CalendarRange size={18}/> Adaptive lesson plan</button>
+      <button className={`sidebar-link ${courseSection === 'risk' ? 'active' : ''}`} onClick={() => setCourseSection('risk')}><ShieldAlert size={18}/> Student risk centre</button>
       <button className={`sidebar-link ${courseSection === 'projects' ? 'active' : ''}`} onClick={() => setCourseSection('projects')}><ClipboardList size={18}/> Project Tracker</button>
       <div className="sidebar-bottom"><span className="sidebar-avatar">T</span><span><strong>{currentUser?.email ?? 'Professor'}</strong><small>Professor workspace</small></span></div>
     </aside>
@@ -143,6 +147,8 @@ export function ProfessorDashboard(props: Props) {
       </section>}
       {courseSection === 'marks' && <section className="panel performance-panel" id="academic-marks"><div className="panel-heading"><div><span className="panel-kicker">ACADEMIC RECORDS</span><h2>Academic marks</h2><p>Upload and maintain assessment marks. No grading policy or final evaluation is applied in this phase.</p></div><span className="panel-heading-icon"><Files size={22}/></span></div><AcademicEvaluationPanel key={courseId} courseId={courseId}/></section>}
       {courseSection === 'performance' && <section className="panel performance-panel" id="performance"><div className="panel-heading"><div><span className="panel-kicker">STUDENT SUCCESS</span><h2>Learning performance</h2><p>Review conceptual understanding from student learning interactions. Academic marks are not used here.</p></div><span className="panel-heading-icon teal-bg"><ChartNoAxesCombined size={22}/></span></div><PerformancePanel courseId={courseId}/></section>}
+      {courseSection === 'learning' && selectedCourse && <section className="panel"><LearningPlanPanel courseId={courseId}/></section>}
+      {courseSection === 'risk' && <section className="panel"><RiskAssessmentPanel/></section>}
     </div>
   </section>
 }

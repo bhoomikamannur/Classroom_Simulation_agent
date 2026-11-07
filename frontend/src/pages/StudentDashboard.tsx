@@ -5,6 +5,7 @@ import { TutorChat } from '../components/student/TutorChat'
 import { StudentSidebar } from '../components/student/StudentSidebar'
 import { StudentProjectTracker } from '../components/student-project-tracker/StudentProjectTracker'
 import { StudentProjectWidget } from '../components/student-project-tracker/StudentProjectWidget'
+import { StudentLearningPlan } from '../components/learning/StudentLearningPlan'
 import { apiFetch, downloadCourseDocument, openCourseDocument } from '../services/api'
 
 type Course = { course_id: string; name: string; description: string; professor_id: string; enrolled_at?: string }
@@ -89,6 +90,7 @@ export function StudentDashboard(props: Props) {
     </> : selectedCourse && <>
       <button className="secondary-button course-back" onClick={() => setView('courses')}><ArrowLeft size={16}/> All courses</button>
       <StudentProjectWidget courseId={selectedCourseId} onOpen={() => setView('projects')}/>
+      <section className="course-materials-panel"><StudentLearningPlan courseId={selectedCourseId}/></section>
       <section className="student-project-widget student-tutor-entry-widget" aria-label="AI Tutor">
         <div className="student-project-widget-icon student-tutor-entry-icon"><Bot size={26}/></div>
         <div className="student-project-widget-content">
