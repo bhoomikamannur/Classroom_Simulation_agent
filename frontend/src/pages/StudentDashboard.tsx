@@ -12,6 +12,8 @@ import { apiFetch, downloadCourseDocument, openCourseDocument } from '../service
 type Course = { course_id: string; name: string; description: string; professor_id: string; enrolled_at?: string }
 type Material = { document_id: string; filename: string; file_type: string; file_size: number; status: string; uploaded_at: string; pages_or_slides_extracted?: number; chunk_count?: number }
 type StudentMarks = { course_id: string; assessments: Record<string, { name: string; marks: number | null; maximum_marks: number | null }> }
+type CourseHourAllocation = { course_id: string; course_name: string; weekly_hours: number; weekly_share_percent: number; performance_band: string; allocation_reason: string }
+type SemesterPlanSummary = { weekly_available_hours: number; current_week: number; course_hour_allocations?: CourseHourAllocation[] }
 type Props = {
   currentUser: AuthUser | null; onLogout: () => void; selectedCourseId: string; onSelectCourse: (id: string) => void
   savedChats: SavedTutorChat[]; activeChatId: string; onOpenChat: (chatId: string) => void
@@ -28,6 +30,7 @@ export function StudentDashboard(props: Props) {
   const [courses, setCourses] = useState<Course[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
   const [studentMarks, setStudentMarks] = useState<StudentMarks | null>(null)
+  const [semesterPlanSummary, setSemesterPlanSummary] = useState<SemesterPlanSummary | null>(null)
   const [enrollmentCode, setEnrollmentCode] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -43,6 +46,15 @@ export function StudentDashboard(props: Props) {
   // Existing data-loading effects synchronize this page with authenticated API data.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadCourses() }, [])
+  useEffect(() => {
+    if (view !== 'courses') return
+    let active = true
+    apiFetch('/api/semester-planner/mine')
+      .then((response) => read<{ plan: SemesterPlanSummary | null }>(response))
+      .then((data) => { if (active) setSemesterPlanSummary(data.plan) })
+      .catch(() => { if (active) setSemesterPlanSummary(null) })
+    return () => { active = false }
+  }, [view])
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!selectedCourseId) { setMaterials([]); setStudentMarks(null); return }
@@ -88,6 +100,11 @@ export function StudentDashboard(props: Props) {
     {view === 'courses' ? <>
       <div className="student-section-heading"><div><h2>My courses</h2><p>Open a course to access its resources and AI tutor.</p></div><button className="secondary-button" onClick={() => void loadCourses()}><RefreshCw size={15}/> Refresh</button></div>
       {loading ? <div className="course-loading"><LoaderCircle className="spin"/> Loading your courses…</div> : courses.length ? <div className="student-course-grid">{courses.map((course) => <button className="student-course-tile" key={course.course_id} onClick={() => { onSelectCourse(course.course_id); setView('course') }}><span className="course-tile-icon"><BookOpen size={23}/></span><strong>{course.name}</strong><span>{course.description || 'Open course workspace'}</span><small>Open course <ArrowLeft size={13}/></small></button>)}</div> : <div className="empty-courses"><BookOpenCheck size={34}/><h3>No courses yet</h3><p>Join a course using the enrollment code shared by your professor.</p></div>}
+      {semesterPlanSummary && <section className="course-materials-panel" style={{ marginTop: 22 }}>
+        <div className="student-section-heading"><div><span className="eyebrow">ADAPTIVE LEARNING ALLOCATION</span><h2>Your weekly course-hour distribution</h2><p>Week {semesterPlanSummary.current_week} · {semesterPlanSummary.weekly_available_hours} available study hours. Allocation adapts to remaining topics and demonstrated learning progress.</p></div></div>
+        <div className="academic-table-wrap"><table className="academic-table"><thead><tr><th>Course</th><th>Allocated hours</th><th>Share of time</th><th>Current learning signal</th><th>Reason</th></tr></thead><tbody>{(semesterPlanSummary.course_hour_allocations ?? []).map((item) => <tr key={item.course_id}><td><strong>{item.course_name}</strong></td><td>{item.weekly_hours}h / week</td><td><div style={{ minWidth: 100, background: 'var(--surface-muted, #e5e7eb)', borderRadius: 20, height: 8, overflow: 'hidden' }}><div style={{ width: `${Math.min(100, item.weekly_share_percent)}%`, height: '100%', background: 'var(--primary, #2563eb)' }}/></div><small>{item.weekly_share_percent}%</small></td><td>{item.performance_band === 'needs_support' ? 'Needs support' : item.performance_band === 'strong' ? 'Strong progress' : 'Developing'}</td><td>{item.allocation_reason}</td></tr>)}</tbody></table></div>
+        <p className="muted-text">This distribution is generated from your semester plan. Change your available hours or update learning evidence to recalculate it.</p>
+      </section>}
       <form className="join-course-form" onSubmit={joinCourse}><div><strong>Join a course</strong><span>Enter the enrollment code provided by your professor.</span></div><input value={enrollmentCode} onChange={(e) => setEnrollmentCode(e.target.value.toUpperCase())} placeholder="Enrollment code" aria-label="Enrollment code"/><button className="primary-button" disabled={busy || !enrollmentCode.trim()}>{busy ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>} Join course</button></form>
     </> : selectedCourse && <>
       <button className="secondary-button course-back" onClick={() => setView('courses')}><ArrowLeft size={16}/> All courses</button>

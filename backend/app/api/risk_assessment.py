@@ -44,6 +44,10 @@ def _dimension(score: float, evidence: list[dict[str, Any]], available: bool = T
 
 def _student_risk(student_id: str, courses: list[dict[str, Any]], now: datetime) -> dict[str, Any]:
     db = _db()
+    # Keep the semester clock current even when a professor opens Risk Centre
+    # before the student visits their own planner in a new week.
+    from backend.app.api.semester_planner import _refresh_student_semester_plan
+    _refresh_student_semester_plan(student_id)
     course_ids = [item["course_id"] for item in courses]
     course_names = {item["course_id"]: item.get("name", "Course") for item in courses}
     evidence: dict[str, list[dict[str, Any]]] = {key: [] for key in WEIGHTS}
@@ -344,9 +348,17 @@ def _student_risk(student_id: str, courses: list[dict[str, Any]], now: datetime)
         # from its required activities. Optional early-study and revision
         # suggestions are never treated as missed syllabus work.
         semester_plan = db["student_semester_plans"].find_one(
-            {"student_id": student_id}, {"_id": 0, "weeks": 1}
+            {"student_id": student_id}, {"_id": 0, "weeks": 1, "current_week": 1, "progress_due_topics": 1}
         )
-        if semester_plan and semester_plan.get("weeks"):
+        if semester_plan and semester_plan.get("current_week"):
+            current_week = min(total_weeks, max(1, int(semester_plan["current_week"])))
+        if semester_plan and semester_plan.get("progress_due_topics") is not None:
+            due_topic_ids = {
+                row.get("topic_id") for row in semester_plan.get("progress_due_topics", [])
+                if row.get("course_id") == course_id
+            }
+            due_topics = [topic for topic in topic_rows if topic.get("topic_id") in due_topic_ids]
+        elif semester_plan and semester_plan.get("weeks"):
             due_topic_ids = {
                 activity.get("topic_id")
                 for week_row in semester_plan.get("weeks", [])
