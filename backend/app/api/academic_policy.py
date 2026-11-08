@@ -14,6 +14,8 @@ from backend.app.analytics.policy_store import (
     get_policy,
     update_policy,
 )
+from backend.app.analytics.marks_store import get_marks_register
+from backend.app.analytics.evaluation_store import invalidate_latest_evaluation_report
 
 
 router = APIRouter(
@@ -37,12 +39,40 @@ class AcademicPolicyUpdateRequest(BaseModel):
     missing_marks_policy: Literal["exclude", "zero"]
 
 
+def _validate_policy_preserves_existing_marks(course_id: str, policy_data: dict) -> None:
+    """Never let a grading-configuration edit invalidate or rewrite raw marks."""
+    register = get_marks_register(course_id)
+    assessment_names = register.get("assessment_names", {})
+    unknown = set(policy_data.get("assessment_weights", {})) - set(assessment_names)
+    if unknown and assessment_names:
+        raise ValueError(
+            "These assessments are not present in the marks register: "
+            + ", ".join(sorted(unknown))
+        )
+    maximums = policy_data.get("assessment_max_marks", {})
+    for student in register.get("students", []):
+        marks = student.get("assessments", {})
+        for assessment, maximum in maximums.items():
+            mark = marks.get(assessment)
+            if mark is not None and float(mark) > float(maximum):
+                display_id = student.get("display_id", student.get("student_id", "student"))
+                raise ValueError(
+                    f"Cannot set {assessment} maximum to {maximum}: "
+                    f"{display_id} already has {mark} marks. Existing marks were preserved; "
+                    "correct the mark or choose a maximum at least as large as the recorded score."
+                )
+
+
 @router.post("", status_code=201)
 def create_academic_policy(request: AcademicPolicyRequest, current_user: dict = Depends(require_role("professor")),):
     """Create a grading policy for a course."""
     get_accessible_course(request.course_id.strip(), current_user)
     try:
-        return create_policy(request.model_dump())
+        policy_data = request.model_dump()
+        _validate_policy_preserves_existing_marks(request.course_id.strip(), policy_data)
+        saved = create_policy(policy_data)
+        invalidate_latest_evaluation_report(request.course_id.strip())
+        return saved
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -77,7 +107,10 @@ def replace_academic_policy(
     policy_data["course_id"] = course_id
 
     try:
+        _validate_policy_preserves_existing_marks(course_id, policy_data)
         updated = update_policy(course_id, policy_data)
+        if updated is not None:
+            invalidate_latest_evaluation_report(course_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

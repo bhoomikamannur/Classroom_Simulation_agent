@@ -2635,3 +2635,12 @@
 .unit-quiz-submit-row { position: sticky; bottom: -16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px -16px -16px; padding: 14px 16px; border-top: 1px solid #e5e7ef; background: #fbfbff; }
 .unit-quiz-submit-row > span { color: #69758b; font-size: 12px; }
 @media (max-width: 640px) { .unit-quiz-backdrop { padding: 8px; } .unit-quiz-modal { max-height: 94vh; padding: 12px; } .unit-quiz-submit-row { align-items: stretch; flex-direction: column; bottom: -12px; margin: 14px -12px -12px; padding: 12px; } }
+
+.risk-assessment-course { margin-top: 12px; padding: 10px; border: 1px solid #e7ebf2; border-radius: 9px; background: #fbfcfe; }
+.risk-assessment-course-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; color: #35425a; font-size: 11px; }
+.risk-assessment-course-heading span { color: #78849a; font-size: 10px; }
+.risk-assessment-course-heading .risk-assessment-alert { color: #b54735; font-weight: 700; }
+.risk-assessment-table { margin-top: 8px; display: grid; gap: 5px; }
+.risk-assessment-row { display: grid; grid-template-columns: minmax(85px, 1.2fr) repeat(4, minmax(65px, 1fr)); gap: 7px; padding: 6px 0; border-top: 1px solid #edf0f5; color: #69758a; font-size: 10px; }
+.risk-assessment-row strong { color: #46536a; }
+@media (max-width: 560px) { .risk-assessment-row { grid-template-columns: 1fr 1fr; } }

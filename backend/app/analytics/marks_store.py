@@ -184,15 +184,30 @@ def merge_marks(course_id: str, frame: pd.DataFrame, uploaded_by: str = "", file
                 finder = getattr(collection, "find_one", None)
                 existing = finder(
                     {"course_id": course_id, "student_id": student_id},
-                    {"_id": 0, f"assessments.{key}.maximum_marks": 1},
+                    {"_id": 0, f"assessments.{key}.maximum_marks": 1,
+                     f"assessments.{key}.marks": 1, f"assessments.{key}.history": 1},
                 ) if finder else None
                 existing = existing or {}
                 maximum = (existing.get("assessments", {}).get(key, {}) or {}).get("maximum_marks")
             if marks is not None and maximum is not None and marks > float(maximum):
                 raise ValueError(f"Marks in '{source_column}' must be between 0 and {maximum}.")
+            existing_assessment = (existing.get("assessments", {}).get(key, {}) or {})
+            history = list(existing_assessment.get("history", []))
+            previous_marks = existing_assessment.get("marks")
+            previous_maximum = existing_assessment.get("maximum_marks") or maximum
+            if marks is not None and (
+                previous_marks is None or float(previous_marks) != float(marks)
+                or (previous_maximum is not None and maximum is not None
+                    and float(previous_maximum) != float(maximum))
+            ):
+                history.append({
+                    "marks": marks, "maximum_marks": maximum,
+                    "recorded_at": now, "source": "marks_upload",
+                    "upload_id": upload_id,
+                })
             assessment_updates[key] = {
                 "name": display_names[key], "marks": marks, "maximum_marks": maximum,
-                "updated_at": now, "source_file_id": upload_id,
+                "history": history, "updated_at": now, "source_file_id": upload_id,
             }
         prepared.append({"student_id": student_id, "submitted_identifier": submitted, "assessments": assessment_updates})
 
@@ -295,7 +310,17 @@ def edit_student_mark(course_id: str, student_identifier: str, assessment_key: s
             raise ValueError("Marks cannot be negative.")
         if maximum is not None and marks_value > float(maximum):
             raise ValueError(f"Marks cannot exceed the maximum of {maximum}.")
-    updated = {**current, "marks": marks_value, "updated_at": datetime.now(timezone.utc), "source_file_id": None, "manually_edited": True}
+    now = datetime.now(timezone.utc)
+    history = list(current.get("history", []))
+    if marks_value is not None and (
+        current.get("marks") is None or float(current.get("marks")) != float(marks_value)
+    ):
+        history.append({
+            "marks": marks_value, "maximum_marks": maximum,
+            "recorded_at": now, "source": "manual_edit",
+        })
+    updated = {**current, "marks": marks_value, "history": history,
+               "updated_at": now, "source_file_id": None, "manually_edited": True}
     _collection().update_one({"course_id": course_id, "student_id": student_id}, {"$set": {f"assessments.{key}": updated, "updated_at": datetime.now(timezone.utc)}})
     return {"student_id": student_id, "assessment": key, "marks": marks_value, "message": "Marks updated."}
 

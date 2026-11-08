@@ -366,6 +366,13 @@ def update_topic_progress(
             "created_at": now,
         }}, upsert=True,
     )
+    if request.status == "completed":
+        _db()["student_topic_evidence"].update_one(
+            {"student_id": user["user_id"], "course_id": course_id, "topic_id": topic_id},
+            {"$set": {"covered": True, "coverage_source": "manual_checklist", "covered_at": now, "updated_at": now},
+             "$setOnInsert": {"student_id": user["user_id"], "course_id": course_id, "topic_id": topic_id}},
+            upsert=True,
+        )
     return {"message": "Topic progress updated.", "topic_id": topic_id, "status": request.status}
 
 class AssessmentSubmission(BaseModel):
@@ -470,6 +477,13 @@ def submit_unit_assessment(
             {"course_id": course_id, "student_id": user["user_id"], "topic_id": topic_id},
             {"$set": {"mastery_score": topic_score, "status": status, "assessed_at": now, "updated_at": now}},
         )
+        _db()["student_topic_evidence"].update_one(
+            {"student_id": user["user_id"], "course_id": course_id, "topic_id": topic_id},
+            {"$set": {"covered": True, "coverage_source": "unit_assessment", "mastery_score": topic_score,
+                      "last_assessed_at": now, "assessment_count": 1, "updated_at": now},
+             "$setOnInsert": {"student_id": user["user_id"], "course_id": course_id, "topic_id": topic_id}},
+            upsert=True,
+        )
         if status == "needs_revision":
             weak_topics.append({"topic_id": topic_id, "title": result["topic_title"], "mastery_score": topic_score})
     _db()["unit_assessments"].update_one({"assessment_id": assessment_id}, {"$set": {
@@ -483,7 +497,7 @@ def submit_unit_assessment(
                            "score": round(value["correct"] / value["total"] * 100, 2)} for key, value in per_topic.items()],
         "topics_to_revisit": weak_topics,
         "unit_mastered": not weak_topics,
-        "message": "Unit mastered. Continue to the next unit." if not weak_topics else "Some topics need revision. They have been added to your learning plan.",
+        "message": "Unit mastered. Continue to the next unit." if not weak_topics else "Some topics need targeted revision. Your topic mastery results have been recorded.",
     }
     _db()["student_learning_events"].insert_one({
         "student_id": user["user_id"], "course_id": course_id,

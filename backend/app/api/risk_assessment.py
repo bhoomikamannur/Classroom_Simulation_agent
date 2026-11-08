@@ -11,6 +11,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
+from backend.app.analytics.academic_risk import analyse_assessment_risk
+
 from backend.app.api.auth import require_role
 from backend.app.database.mongodb import get_mongodb_database
 
@@ -163,15 +165,57 @@ def _student_risk(student_id: str, courses: list[dict[str, Any]], now: datetime)
             [max(0.0, min(100.0, (60.0 - score) * 1.5)) for score in weak_topic_scores]
         )
 
-    conceptual_score = min(100.0, sum(conceptual_risk_values))
-    conceptual_available = bool(profiles or alerts or unit_results)
+    # Weekly cross-course assessments also contribute to conceptual understanding.
+    # Avoid double-counting topics already represented by the latest unit assessment.
+    unit_topic_keys = set()
+    for attempt in latest_by_unit.values():
+        for question in attempt.get("questions", []):
+            if question.get("topic_id"):
+                unit_topic_keys.add((str(attempt.get("course_id")), str(question["topic_id"])))
 
-    # 2) Formal academic performance: only professor-entered/evaluated marks.
+    weekly_results = list(db["weekly_assessments"].find({
+        "student_id": student_id, "status": "submitted",
+    }, {"_id": 0, "topic_results": 1, "submitted_at": 1}).sort("submitted_at", -1))
+    latest_weekly_topic: dict[tuple[str, str], dict[str, Any]] = {}
+    for attempt in weekly_results:
+        for result in attempt.get("topic_results", []):
+            key = (str(result.get("course_id")), str(result.get("topic_id")))
+            if key[0] in course_ids and key not in latest_weekly_topic and key not in unit_topic_keys:
+                latest_weekly_topic[key] = result
+
+    for (course_id, _topic_id), result in latest_weekly_topic.items():
+        mastery = float(result.get("score", 0))
+        if mastery < 60:
+            conceptual_risk_values.append(max(0.0, min(100.0, (60.0 - mastery) * 1.5)))
+            evidence["conceptual"].append({
+                "course": course_names.get(course_id, "Course"),
+                "issue": f"Weekly formative assessment: {result.get('topic_title', 'Topic')}",
+                "severity": "high" if mastery < 40 else "medium",
+                "source": "Weekly formative assessment",
+                "details": f"Latest topic mastery: {mastery:.1f}% (mastery threshold: 60%).",
+            })
+
+    conceptual_score = min(100.0, sum(conceptual_risk_values))
+    conceptual_available = bool(profiles or alerts or unit_results or weekly_results)
+
+    # 2) Formal academic performance: assessment-by-assessment analysis.
+    # Preserve the weighted final evaluation as one signal, but analyse each
+    # assessment independently against the same-assessment cohort average.
+    user_identity = db["users"].find_one(
+        {"$or": [{"user_id": student_id}, {"roll_number": student_id}]},
+        {"_id": 0, "user_id": 1, "roll_number": 1},
+    ) or {}
+    student_identifiers = list(dict.fromkeys(
+        value for value in [student_id, user_identity.get("user_id"), user_identity.get("roll_number")]
+        if value
+    ))
     evaluations = list(db["academic_evaluation_results"].find({
-        "student_id": student_id, "course_id": {"$in": course_ids}, "is_complete": True,
+        "student_id": {"$in": student_identifiers}, "course_id": {"$in": course_ids}, "is_complete": True,
     }, {"_id": 0, "course_id": 1, "weighted_percentage": 1,
         "pass_status": 1, "evaluated_at": 1}))
     academic_values = []
+    academic_assessment_details = []
+    assessment_risk_scores = []
     for item in evaluations:
         score = item.get("weighted_percentage")
         if isinstance(score, (int, float)):
@@ -181,16 +225,96 @@ def _student_risk(student_id: str, courses: list[dict[str, Any]], now: datetime)
                     "course": course_names.get(item.get("course_id"), "Course"),
                     "issue": "Below passing threshold", "severity": "high",
                     "source": "Formal academic evaluation",
-                    "details": f"Latest complete evaluated result: {score:.1f}%.",
+                    "details": f"Latest complete weighted result: {score:.1f}%.",
                 })
             elif score < 55:
                 evidence["academic"].append({
                     "course": course_names.get(item.get("course_id"), "Course"),
-                    "issue": "Low academic performance", "severity": "medium",
+                    "issue": "Low overall academic performance", "severity": "medium",
                     "source": "Formal academic evaluation",
-                    "details": f"Latest complete evaluated result: {score:.1f}%.",
+                    "details": f"Latest complete weighted result: {score:.1f}%.",
                 })
-    academic_score = max(0, min(100, (60 - min(academic_values)) * 2)) if academic_values else 0.0
+
+    for course_id in course_ids:
+        enrolled_rows = list(db["course_enrollments"].find(
+            {"course_id": course_id, "status": "active"},
+            {"_id": 0, "student_id": 1},
+        ))
+        enrolled_ids = [str(row.get("student_id")) for row in enrolled_rows if row.get("student_id")]
+        enrolled_users = list(db["users"].find(
+            {"$or": [{"user_id": {"$in": enrolled_ids}}, {"roll_number": {"$in": enrolled_ids}}]},
+            {"_id": 0, "user_id": 1, "roll_number": 1},
+        )) if enrolled_ids else []
+        cohort_ids = list(dict.fromkeys(
+            value for row in enrolled_users for value in [row.get("user_id"), row.get("roll_number")]
+            if value
+        ))
+        cohort_ids = list(dict.fromkeys([*enrolled_ids, *cohort_ids]))
+        records = list(db["academic_marks"].find(
+            {"course_id": course_id, "student_id": {"$in": cohort_ids}},
+            {"_id": 0, "student_id": 1, "assessments": 1}
+        )) if cohort_ids else []
+        student_record = next((row for row in records if str(row.get("student_id")) in {str(v) for v in student_identifiers}), None)
+        if not student_record:
+            continue
+        policy = db["academic_policies"].find_one({"course_id": course_id}, {"_id": 0}) or {}
+        # Assessment history is stored with each marks-register component.
+        history = []
+        assessments_now = student_record.get("assessments", {}) or {}
+        for key, component in assessments_now.items():
+            component_history = component.get("history", []) if isinstance(component, dict) else []
+            for event in component_history:
+                history.append({
+                    **event, "assessment_key": key,
+                    "maximum_marks": event.get("maximum_marks") or component.get("maximum_marks"),
+                })
+        # Backfill trend context from older upload snapshots created before
+        # per-assessment history was added to the marks register.
+        if not history:
+            uploads = list(db["academic_marks_uploads"].find(
+                {"course_id": course_id, "status": "active"},
+                {"_id": 0, "uploaded_at": 1, "rows": 1},
+            ).sort("uploaded_at", 1))
+            for upload in uploads:
+                row = next((item for item in upload.get("rows", [])
+                            if str(item.get("student_id")) in {str(v) for v in student_identifiers}), None)
+                if not row:
+                    continue
+                for key, component in (row.get("assessments", {}) or {}).items():
+                    if isinstance(component, dict) and component.get("marks") is not None:
+                        history.append({
+                            "assessment_key": key, "marks": component.get("marks"),
+                            "maximum_marks": component.get("maximum_marks"),
+                            "recorded_at": upload.get("uploaded_at"),
+                        })
+        analysis = analyse_assessment_risk(
+            student_id=student_id,
+            student_record=student_record,
+            course_records=records,
+            policy=policy,
+            history=history,
+        )
+        if analysis.get("available"):
+            assessment_risk_scores.append(float(analysis["score"]))
+            academic_assessment_details.append({
+                "course_id": course_id,
+                "course": course_names.get(course_id, "Course"),
+                "score": analysis["score"],
+                "high_alert": analysis["high_alert"],
+                "poor_assessment_count": analysis.get("poor_assessment_count", 0),
+                "assessed_component_count": analysis.get("assessed_component_count", 0),
+                "assessments": analysis.get("assessments", []),
+            })
+            for item_evidence in analysis.get("evidence", []):
+                evidence["academic"].append({
+                    "course": course_names.get(course_id, "Course"),
+                    **item_evidence,
+                })
+
+    overall_score = max(0.0, min(100.0, (60 - min(academic_values)) * 2)) if academic_values else 0.0
+    if assessment_risk_scores:
+        overall_score = max(overall_score, max(assessment_risk_scores))
+    academic_score = overall_score
 
     # 3) Learning progress against the published baseline schedule.
     progress_score = 0.0
@@ -206,23 +330,46 @@ def _student_risk(student_id: str, courses: list[dict[str, Any]], now: datetime)
         states = list(db["student_topic_progress"].find({
             "student_id": student_id, "course_id": course_id,
         }, {"_id": 0, "topic_id": 1, "status": 1}))
-        completed_ids = {row["topic_id"] for row in states if row.get("status") == "completed"}
+        # Topic coverage is evidence-based: checklist completion OR a weekly/unit
+        # assessment attempt counts as covered. Mastery is evaluated separately.
+        evidence_rows = list(db["student_topic_evidence"].find({
+            "student_id": student_id, "course_id": course_id, "covered": True,
+        }, {"_id": 0, "topic_id": 1}))
+        covered_ids = {row["topic_id"] for row in states if row.get("status") == "completed"}
+        covered_ids.update(row["topic_id"] for row in evidence_rows)
         start = _safe_date(plan.get("start_date"))
         total_weeks = max(1, int(plan.get("semester_weeks", 16)))
         current_week = min(total_weeks, max(1, int(max(0, (now.date() - start).days / 7)) + 1)) if start else 1
-        due_topics = [topic for unit in plan.get("units", [])
-                      if int(unit.get("end_week", total_weeks)) <= current_week
-                      for topic in unit.get("topics", [])]
+        # When a student semester plan exists, progress obligations come only
+        # from its required activities. Optional early-study and revision
+        # suggestions are never treated as missed syllabus work.
+        semester_plan = db["student_semester_plans"].find_one(
+            {"student_id": student_id}, {"_id": 0, "weeks": 1}
+        )
+        if semester_plan and semester_plan.get("weeks"):
+            due_topic_ids = {
+                activity.get("topic_id")
+                for week_row in semester_plan.get("weeks", [])
+                if int(week_row.get("week", 0)) <= current_week
+                for activity in week_row.get("activities", [])
+                if activity.get("course_id") == course_id
+                and activity.get("schedule_type", "required") == "required"
+            }
+            due_topics = [topic for topic in topic_rows if topic.get("topic_id") in due_topic_ids]
+        else:
+            due_topics = [topic for unit in plan.get("units", [])
+                          if int(unit.get("end_week", total_weeks)) <= current_week
+                          for topic in unit.get("topics", [])]
         if due_topics:
-            completion = sum(1 for topic in due_topics if topic["topic_id"] in completed_ids) / len(due_topics)
+            completion = sum(1 for topic in due_topics if topic["topic_id"] in covered_ids) / len(due_topics)
             course_risk = (1 - completion) * 100
             progress_score = max(progress_score, course_risk)
             if course_risk >= 25:
                 evidence["progress"].append({
                     "course": course_names.get(course_id, "Course"),
-                    "issue": "Behind the lesson plan",
+                    "issue": "Scheduled topics not yet evidenced as covered",
                     "severity": "high" if course_risk >= 60 else "medium",
-                    "details": f"{round(completion * 100)}% of topics scheduled through week {current_week} are marked complete.",
+                    "details": f"{round(completion * 100)}% of topics scheduled through week {current_week} are supported by checklist or assessment evidence.",
                 })
 
     # 4) Project submission compliance.
@@ -255,7 +402,10 @@ def _student_risk(student_id: str, courses: list[dict[str, Any]], now: datetime)
     dimensions = {
         "conceptual": _dimension(conceptual_score, evidence["conceptual"], conceptual_available),
         "progress": _dimension(progress_score, evidence["progress"], progress_available),
-        "academic": _dimension(academic_score, evidence["academic"], bool(evaluations)),
+        "academic": {
+            **_dimension(academic_score, evidence["academic"], bool(evaluations or academic_assessment_details)),
+            "assessment_analysis": academic_assessment_details,
+        },
         "project": _dimension(project_score, evidence["project"], bool(projects)),
     }
     available_weight = sum(WEIGHTS[key] for key, value in dimensions.items() if value["available"])

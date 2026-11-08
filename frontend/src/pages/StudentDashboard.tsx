@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { ArrowLeft, ArrowRight, BookOpen, BookOpenCheck, Bot, ClipboardList, Download, Eye, FileText, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BookOpen, BookOpenCheck, Bot, CalendarDays, ClipboardList, Download, Eye, FileText, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 import type { AuthUser, ChatMessage, SavedTutorChat } from '../types'
 import { TutorChat } from '../components/student/TutorChat'
 import { StudentSidebar } from '../components/student/StudentSidebar'
 import { StudentProjectTracker } from '../components/student-project-tracker/StudentProjectTracker'
 import { StudentProjectWidget } from '../components/student-project-tracker/StudentProjectWidget'
 import { StudentLearningPlan } from '../components/learning/StudentLearningPlan'
+import { SemesterPlanner } from '../components/learning/SemesterPlanner'
 import { apiFetch, downloadCourseDocument, openCourseDocument } from '../services/api'
 
 type Course = { course_id: string; name: string; description: string; professor_id: string; enrolled_at?: string }
@@ -31,7 +32,7 @@ export function StudentDashboard(props: Props) {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [view, setView] = useState<'courses' | 'course' | 'chat' | 'projects'>('courses')
+  const [view, setView] = useState<'courses' | 'course' | 'chat' | 'projects' | 'semester'>('courses')
   const selectedCourse = courses.find((course) => course.course_id === selectedCourseId)
   async function loadCourses() {
     setLoading(true); setError('')
@@ -60,6 +61,7 @@ export function StudentDashboard(props: Props) {
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not join course.') }
     finally { setBusy(false) }
   }
+  if (view === 'semester') return <SemesterPlanner onBack={() => setView('courses')}/>
   if (view === 'projects') return <section className="student-projects-page">
     <header className="student-home-header"><div><span className="eyebrow">STUDENT WORKSPACE</span><h1>My Projects</h1><p>Projects assigned to you across your enrolled courses.</p></div><div className="project-header-actions"><button className="secondary-button" onClick={() => setView(selectedCourse ? 'course' : 'courses')}>Back to {selectedCourse ? 'course' : 'my courses'}</button><button className="secondary-button" onClick={onLogout}>Log out</button></div></header>
     <StudentProjectTracker onBack={() => setView(selectedCourse ? 'course' : 'courses')}/>
@@ -81,7 +83,7 @@ export function StudentDashboard(props: Props) {
     </main>
   </section>
   return <section className="student-home">
-    <header className="student-home-header"><div><span className="eyebrow">STUDENT WORKSPACE</span><h1>{view === 'course' && selectedCourse ? selectedCourse.name : `Welcome${currentUser?.email ? `, ${currentUser.email.split('@')[0]}` : ''}`}</h1><p>{view === 'course' ? selectedCourse?.description || 'Your course learning space.' : 'Choose a course to continue learning.'}</p></div><div className="project-header-actions">{view === 'courses' && <button className="secondary-button" onClick={() => setView('projects')}><ClipboardList size={15}/> My Projects</button>}<button className="secondary-button" onClick={onLogout}>Log out</button></div></header>
+    <header className="student-home-header"><div><span className="eyebrow">STUDENT WORKSPACE</span><h1>{view === 'course' && selectedCourse ? selectedCourse.name : `Welcome${currentUser?.email ? `, ${currentUser.email.split('@')[0]}` : ''}`}</h1><p>{view === 'course' ? selectedCourse?.description || 'Your course learning space.' : 'Choose a course to continue learning.'}</p></div><div className="project-header-actions">{view === 'courses' && <><button className="secondary-button" onClick={() => setView('semester')}><CalendarDays size={15}/> Semester study plan</button><button className="secondary-button" onClick={() => setView('projects')}><ClipboardList size={15}/> My Projects</button></>}<button className="secondary-button" onClick={onLogout}>Log out</button></div></header>
     {error && <div className="feedback error-feedback">{error}<button className="feedback-close" onClick={() => setError('')}>×</button></div>}
     {view === 'courses' ? <>
       <div className="student-section-heading"><div><h2>My courses</h2><p>Open a course to access its resources and AI tutor.</p></div><button className="secondary-button" onClick={() => void loadCourses()}><RefreshCw size={15}/> Refresh</button></div>

@@ -76,6 +76,8 @@ export function AcademicEvaluationPanel({ courseId }: { courseId: string }) {
   const [passPercentage, setPassPercentage] = useState('40')
   const [missingPolicy, setMissingPolicy] = useState<'exclude' | 'zero'>('exclude')
   const [evaluation, setEvaluation] = useState<EvaluationReport | null>(null)
+  const [policyExists, setPolicyExists] = useState(false)
+  const [configurationDirty, setConfigurationDirty] = useState(false)
   const visibleRows = expanded ? (register?.students ?? []) : (register?.students ?? []).slice(0, 10)
 
   async function refreshRegister() {
@@ -85,9 +87,12 @@ export function AcademicEvaluationPanel({ courseId }: { courseId: string }) {
     // Preserve values already entered by the professor when the register refreshes.
     setAssessmentConfig(current => {
       const next: Record<string, { weight: string; maximum: string }> = {}
+      let hasNewAssessment = false
       for (const key of Object.keys(data.assessment_names ?? {})) {
+        if (!current[key]) hasNewAssessment = true
         next[key] = current[key] ?? { weight: '', maximum: '' }
       }
+      if (hasNewAssessment) setConfigurationDirty(true)
       return next
     })
   }
@@ -98,29 +103,47 @@ export function AcademicEvaluationPanel({ courseId }: { courseId: string }) {
   }
 
   async function refreshSavedConfiguration() {
-    try {
-      const policy = await readJson<{ assessment_weights: Record<string, number>; assessment_max_marks: Record<string, number>; pass_percentage: number; missing_marks_policy: 'exclude' | 'zero' }>(
-        await apiFetch(`/api/academic-policies/${encodeURIComponent(courseId)}`),
-      )
-      setAssessmentConfig(Object.fromEntries(Object.keys(policy.assessment_weights).map(key => [key, {
-        weight: String(policy.assessment_weights[key]),
-        maximum: String(policy.assessment_max_marks[key]),
-      }])))
-      setPassPercentage(String(policy.pass_percentage))
-      setMissingPolicy(policy.missing_marks_policy)
-    } catch {
-      // A course without a saved evaluation configuration starts with blank fields.
+    const response = await apiFetch(`/api/academic-policies/${encodeURIComponent(courseId)}`)
+    if (response.status === 404) {
+      setPolicyExists(false)
+      setConfigurationDirty(false)
+      setPassPercentage('40')
+      setMissingPolicy('exclude')
+      return
     }
+    const policy = await readJson<{ assessment_weights: Record<string, number>; assessment_max_marks: Record<string, number>; pass_percentage: number; missing_marks_policy: 'exclude' | 'zero' }>(response)
+    setAssessmentConfig(current => {
+      const next = { ...current }
+      for (const key of Object.keys(policy.assessment_weights)) {
+        next[key] = {
+          weight: String(policy.assessment_weights[key]),
+          maximum: String(policy.assessment_max_marks[key]),
+        }
+      }
+      return next
+    })
+    setPassPercentage(String(policy.pass_percentage))
+    setMissingPolicy(policy.missing_marks_policy)
+    setPolicyExists(true)
+    setConfigurationDirty(false)
   }
 
   async function refreshAll() {
     setError('')
-    try { await Promise.all([refreshRegister(), refreshUploads(), refreshSavedConfiguration()]) }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not load academic marks.') }
+    try {
+      // Load in sequence: the saved policy must win over blank rows seeded from
+      // the marks register. Parallel state updates could otherwise race.
+      await refreshRegister()
+      await refreshUploads()
+      await refreshSavedConfiguration()
+      const latestResponse = await apiFetch(`/api/academic-evaluation/latest/${encodeURIComponent(courseId)}`)
+      if (latestResponse.status === 404) setEvaluation(null)
+      else setEvaluation(await readJson<EvaluationReport>(latestResponse))
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not load academic marks.') }
   }
 
   useEffect(() => {
-    setRegister(null); setUploads([]); setError(''); setMessage(''); setExpanded(false); setAssessmentConfig({}); setEvaluation(null)
+    setRegister(null); setUploads([]); setError(''); setMessage(''); setExpanded(false); setAssessmentConfig({}); setEvaluation(null); setPolicyExists(false); setConfigurationDirty(false); setPassPercentage('40'); setMissingPolicy('exclude')
     if (courseId) void refreshAll()
     // refreshAll is intentionally scoped to the selected course.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -177,35 +200,73 @@ export function AcademicEvaluationPanel({ courseId }: { courseId: string }) {
     finally { setBusy('') }
   }
 
-  async function evaluateMarks() {
+  function buildPolicyPayload() {
     const entries = Object.entries(assessmentConfig)
-    if (!entries.length) { setError('Keep at least one assessment to evaluate.'); return }
+    if (!entries.length) throw new Error('Keep at least one assessment in the grading configuration.')
     const weights: Record<string, number> = {}
     const maximums: Record<string, number> = {}
     for (const [key, config] of entries) {
       const weight = Number(config.weight)
       const maximum = Number(config.maximum)
       if (!config.weight.trim() || !Number.isFinite(weight) || weight <= 0 || weight > 100) {
-        setError(`Enter a valid weight between 0 and 100 for ${register?.assessment_names[key] ?? key}.`); return
+        throw new Error(`Enter a valid weight between 0 and 100 for ${register?.assessment_names[key] ?? key}.`)
       }
       if (!config.maximum.trim() || !Number.isFinite(maximum) || maximum <= 0) {
-        setError(`Enter a positive maximum mark for ${register?.assessment_names[key] ?? key}.`); return
+        throw new Error(`Enter a positive maximum mark for ${register?.assessment_names[key] ?? key}.`)
       }
       weights[key] = weight
       maximums[key] = maximum
     }
     const total = Object.values(weights).reduce((sum, value) => sum + value, 0)
-    if (Math.abs(total - 100) > 0.000001) { setError(`Assessment weights must total 100%. Current total: ${total}%.`); return }
+    if (Math.abs(total - 100) > 0.000001) throw new Error(`Assessment weights must total 100%. Current total: ${total}%.`)
     const pass = Number(passPercentage)
-    if (!Number.isFinite(pass) || pass < 0 || pass > 100) { setError('Pass percentage must be between 0 and 100.'); return }
+    if (!Number.isFinite(pass) || pass < 0 || pass > 100) throw new Error('Pass percentage must be between 0 and 100.')
+    return { assessment_weights: weights, assessment_max_marks: maximums, pass_percentage: pass, missing_marks_policy: missingPolicy }
+  }
+
+  async function saveConfiguration() {
+    setBusy('save-policy'); setError(''); setMessage('')
+    try {
+      const payload = buildPolicyPayload()
+      const response = await apiFetch(
+        policyExists ? `/api/academic-policies/${encodeURIComponent(courseId)}` : '/api/academic-policies',
+        {
+          method: policyExists ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(policyExists ? payload : { course_id: courseId, ...payload }),
+        },
+      )
+      await readJson(response)
+      setPolicyExists(true)
+      setConfigurationDirty(false)
+      setEvaluation(null)
+      setMessage('Grading configuration saved. Existing student marks have not been changed.')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not save grading configuration.') }
+    finally { setBusy('') }
+  }
+
+  async function evaluateMarks() {
     setBusy('evaluate'); setError(''); setMessage('')
     try {
+      const payload = buildPolicyPayload()
+      // Persist the configuration first. Evaluation and configuration are
+      // separate actions, but evaluation always uses the latest saved policy.
+      if (configurationDirty || !policyExists) {
+        const saveResponse = await apiFetch(
+          policyExists ? `/api/academic-policies/${encodeURIComponent(courseId)}` : '/api/academic-policies',
+          {
+            method: policyExists ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(policyExists ? payload : { course_id: courseId, ...payload }),
+          },
+        )
+        await readJson(saveResponse)
+        setPolicyExists(true)
+        setConfigurationDirty(false)
+      }
       const report = await readJson<EvaluationReport & { message: string }>(await apiFetch(
         `/api/academic-evaluation/evaluate/${encodeURIComponent(courseId)}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-          assessment_weights: weights, assessment_max_marks: maximums,
-          pass_percentage: pass, missing_marks_policy: missingPolicy,
-        }) },
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
       ))
       setEvaluation(report)
       setMessage(report.message)
@@ -220,6 +281,7 @@ export function AcademicEvaluationPanel({ courseId }: { courseId: string }) {
       return next
     })
     setEvaluation(null)
+    setConfigurationDirty(true)
   }
 
   const assessmentEntries = Object.entries(register?.assessment_names ?? {})
@@ -271,17 +333,17 @@ export function AcademicEvaluationPanel({ courseId }: { courseId: string }) {
         <div className="academic-config-table-wrap"><table className="academic-table academic-config-table"><thead><tr><th>Assessment</th><th>Weight (%)</th><th>Maximum marks</th><th>Action</th></tr></thead><tbody>
           {assessmentEntries.filter(([key]) => key in assessmentConfig).map(([key, name]) => <tr key={key}>
             <td><strong>{name}</strong></td>
-            <td><input aria-label={`${name} weight percentage`} type="number" min="0.01" max="100" step="0.01" placeholder="Enter weight" value={assessmentConfig[key]?.weight ?? ''} onChange={event => { setEvaluation(null); setAssessmentConfig(current => ({ ...current, [key]: { ...current[key], weight: event.target.value } })) }}/></td>
-            <td><input aria-label={`${name} maximum marks`} type="number" min="0.01" step="0.01" placeholder="Enter maximum" value={assessmentConfig[key]?.maximum ?? ''} onChange={event => { setEvaluation(null); setAssessmentConfig(current => ({ ...current, [key]: { ...current[key], maximum: event.target.value } })) }}/></td>
+            <td><input aria-label={`${name} weight percentage`} type="number" min="0.01" max="100" step="0.01" placeholder="Enter weight" value={assessmentConfig[key]?.weight ?? ''} onChange={event => { setEvaluation(null); setConfigurationDirty(true); setAssessmentConfig(current => ({ ...current, [key]: { ...current[key], weight: event.target.value } })) }}/></td>
+            <td><input aria-label={`${name} maximum marks`} type="number" min="0.01" step="0.01" placeholder="Enter maximum" value={assessmentConfig[key]?.maximum ?? ''} onChange={event => { setEvaluation(null); setConfigurationDirty(true); setAssessmentConfig(current => ({ ...current, [key]: { ...current[key], maximum: event.target.value } })) }}/></td>
             <td><button type="button" className="academic-remove-button" title={`Remove ${name} from evaluation`} aria-label={`Remove ${name}`} onClick={() => removeAssessment(key)}><Trash2 size={16}/></button></td>
           </tr>)}
         </tbody></table></div>
         <div className="academic-evaluation-options">
-          <label>Pass percentage<input type="number" min="0" max="100" value={passPercentage} onChange={event => { setEvaluation(null); setPassPercentage(event.target.value) }}/></label>
-          <label>Missing marks<select value={missingPolicy} onChange={event => { setEvaluation(null); setMissingPolicy(event.target.value as 'exclude' | 'zero') }}><option value="exclude">Exclude and calculate provisional result</option><option value="zero">Count missing marks as zero</option></select></label>
+          <label>Pass percentage<input type="number" min="0" max="100" value={passPercentage} onChange={event => { setEvaluation(null); setConfigurationDirty(true); setPassPercentage(event.target.value) }}/></label>
+          <label>Missing marks<select value={missingPolicy} onChange={event => { setEvaluation(null); setConfigurationDirty(true); setMissingPolicy(event.target.value as 'exclude' | 'zero') }}><option value="exclude">Exclude and calculate provisional result</option><option value="zero">Count missing marks as zero</option></select></label>
           <div className="academic-weight-total">Total weight: <strong>{Object.values(assessmentConfig).reduce((sum, item) => sum + (Number(item.weight) || 0), 0).toFixed(2)}%</strong></div>
         </div>
-        <div className="academic-action-row academic-evaluate-action"><button type="button" className="primary-button" disabled={!!busy || !assessmentEntries.some(([key]) => key in assessmentConfig)} onClick={() => void evaluateMarks()}>{busy === 'evaluate' ? 'Evaluating…' : 'Evaluate marks'}</button></div>
+        <div className="academic-action-row academic-evaluate-action"><button type="button" className="secondary-button" disabled={!!busy || !configurationDirty} onClick={() => void saveConfiguration()}>{busy === 'save-policy' ? 'Saving…' : 'Save configuration'}</button><button type="button" className="primary-button" disabled={!!busy || !assessmentEntries.some(([key]) => key in assessmentConfig)} onClick={() => void evaluateMarks()}>{busy === 'evaluate' ? 'Evaluating…' : 'Evaluate marks'}</button></div><p className="academic-summary-footnote">Save configuration stores weights, maximum marks and grading rules independently. Evaluating recalculates results from the existing marks register; it does not replace student marks.</p>
       </>}
     </section>
 

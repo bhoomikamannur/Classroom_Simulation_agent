@@ -12,6 +12,9 @@ from backend.app.analytics.marks_store import (
 from backend.app.analytics.academic_analysis import load_marks_file
 from backend.app.analytics.academic_policy import validate_academic_policy, calculate_weighted_result
 from backend.app.analytics.policy_store import create_policy, get_policy, update_policy
+from backend.app.analytics.evaluation_store import (
+    save_latest_evaluation_report, get_latest_evaluation_report, invalidate_latest_evaluation_report,
+)
 from backend.app.services.academic_alerts import persist_evaluation_and_update_alerts
 from backend.app.api.auth import require_role, get_current_user
 from backend.app.services.course_access import get_accessible_course
@@ -56,7 +59,9 @@ async def upload_marks(
             temp.write(data)
             temp_path = Path(temp.name)
         frame = load_marks_file(temp_path)
-        return merge_marks(course_id, frame, str(current_user.get("user_id", "")), file.filename)
+        result = merge_marks(course_id, frame, str(current_user.get("user_id", "")), file.filename)
+        invalidate_latest_evaluation_report(course_id)
+        return result
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     finally:
@@ -163,6 +168,13 @@ def evaluate_course_marks(
             student_results=results,
             pass_percentage=float(policy["pass_percentage"]),
         )
+        report = {
+            "course_id": course_id,
+            "grading_policy": saved_policy or policy,
+            "student_results": results,
+            "summary": summary,
+        }
+        save_latest_evaluation_report(report)
         return {
             "course_id": course_id,
             "number_of_students": len(results),
@@ -174,6 +186,15 @@ def evaluate_course_marks(
         }
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+@router.get("/latest/{course_id}")
+def read_latest_evaluation(course_id: str, current_user: dict = Depends(require_role("professor"))):
+    get_accessible_course(course_id, current_user)
+    report = get_latest_evaluation_report(course_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="No current evaluation report is available. Evaluate the marks after saving the latest configuration.")
+    return report
+
 
 @router.get("/register/{course_id}")
 def read_marks_register(course_id: str, current_user: dict = Depends(require_role("professor"))):
@@ -193,6 +214,7 @@ def remove_marks_upload(course_id: str, upload_id: str, current_user: dict = Dep
     result = delete_marks_upload(course_id, upload_id)
     if result is None:
         raise HTTPException(status_code=404, detail="Marks upload not found.")
+    invalidate_latest_evaluation_report(course_id)
     return result
 
 
@@ -205,6 +227,7 @@ def update_individual_mark(course_id: str, request: MarkEditRequest, current_use
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if result is None:
         raise HTTPException(status_code=404, detail="Student or assessment mark not found.")
+    invalidate_latest_evaluation_report(course_id)
     return result
 
 
