@@ -12,7 +12,7 @@ async function readResponse(response: Response) {
 }
 
 export async function login(email: string, password: string): Promise<AuthUser> {
-  const response = await fetch('/api/auth/login', {
+  const response = await apiFetch('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -34,7 +34,7 @@ export async function register(payload: {
   display_name?: string
   professor_registration_code?: string
 }) {
-  const response = await fetch('/api/auth/register', {
+  const response = await apiFetch('/api/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

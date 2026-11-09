@@ -1,16 +1,21 @@
-.venv/
+# Python
 __pycache__/
 *.py[cod]
-.env
 .pytest_cache/
-.mypy_cache/
-.vscode/
-.idea/
-backend/data/chroma/*
-!backend/data/chroma/.gitkeep
-backend/data/raw/*
-!backend/data/raw/.gitkeep
+.venv/
+venv/
+
+# Environment secrets
+.env
+.env.*
+!**/.env.example
+backend/.env
+frontend/.env.local
+
+# Frontend dependencies/build output
+node_modules/
 frontend/node_modules/
 frontend/dist/
-backend/data/project_uploads/*
-!backend/data/project_uploads/.gitkeep
+
+# Local generated data (GridFS stores new uploaded originals in MongoDB)
+backend/data/

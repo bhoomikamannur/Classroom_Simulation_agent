@@ -170,6 +170,25 @@ def merge_marks(course_id: str, frame: pd.DataFrame, uploaded_by: str = "", file
                 if marks < 0:
                     raise ValueError(f"Marks cannot be negative in column '{source_column}'.")
 
+            
+            # Always retrieve the previous assessment so its history is preserved.
+            finder = getattr(collection, "find_one", None)
+            existing = finder(
+                {"course_id": course_id, "student_id": student_id},
+                {
+                    "_id": 0,
+                    f"assessments.{key}.maximum_marks": 1,
+                    f"assessments.{key}.marks": 1,
+                    f"assessments.{key}.history": 1,
+                },
+            ) if finder else None
+
+            existing = existing or {}
+            existing_assessment = (
+                existing.get("assessments", {}).get(key, {}) or {}
+            )
+
+            # Prefer maximum marks supplied in the current upload.
             maximum = None
             if key in max_cols:
                 raw_max = row[max_cols[key]]
@@ -177,24 +196,31 @@ def merge_marks(course_id: str, frame: pd.DataFrame, uploaded_by: str = "", file
                     try:
                         maximum = float(raw_max)
                     except (TypeError, ValueError) as exc:
-                        raise ValueError(f"Invalid maximum marks in column '{max_cols[key]}'.") from exc
+                        raise ValueError(
+                            f"Invalid maximum marks in column '{max_cols[key]}'."
+                        ) from exc
+
                     if maximum <= 0:
-                        raise ValueError(f"Maximum marks must be positive in column '{max_cols[key]}'.")
+                        raise ValueError(
+                            f"Maximum marks must be positive in column '{max_cols[key]}'."
+                        )
+
+            # Otherwise, reuse the previously stored maximum.
             if maximum is None:
-                finder = getattr(collection, "find_one", None)
-                existing = finder(
-                    {"course_id": course_id, "student_id": student_id},
-                    {"_id": 0, f"assessments.{key}.maximum_marks": 1,
-                     f"assessments.{key}.marks": 1, f"assessments.{key}.history": 1},
-                ) if finder else None
-                existing = existing or {}
-                maximum = (existing.get("assessments", {}).get(key, {}) or {}).get("maximum_marks")
+                maximum = existing_assessment.get("maximum_marks")
+
             if marks is not None and maximum is not None and marks > float(maximum):
-                raise ValueError(f"Marks in '{source_column}' must be between 0 and {maximum}.")
-            existing_assessment = (existing.get("assessments", {}).get(key, {}) or {})
+                raise ValueError(
+                    f"Marks in '{source_column}' must be between 0 and {maximum}."
+                )
+
             history = list(existing_assessment.get("history", []))
             previous_marks = existing_assessment.get("marks")
-            previous_maximum = existing_assessment.get("maximum_marks") or maximum
+            previous_maximum = existing_assessment.get("maximum_marks")
+
+            if previous_maximum is None:
+                previous_maximum = maximum
+
             if marks is not None and (
                 previous_marks is None or float(previous_marks) != float(marks)
                 or (previous_maximum is not None and maximum is not None

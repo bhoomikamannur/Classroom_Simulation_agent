@@ -1,8 +1,15 @@
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+
+function resolveApiInput(input: RequestInfo | URL): RequestInfo | URL {
+  if (!API_BASE_URL || typeof input !== 'string' || !input.startsWith('/api/')) return input
+  return `${API_BASE_URL}${input.replace(/^\/api/, '')}`
+}
+
 export async function apiFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
   const token = localStorage.getItem('classroom_ai_access_token')
   if (token) headers.set('Authorization', `Bearer ${token}`)
-  return fetch(input, { ...init, headers })
+  return fetch(resolveApiInput(input), { ...init, headers })
 }
 
 

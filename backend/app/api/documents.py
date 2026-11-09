@@ -4,12 +4,13 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pymongo import ASCENDING, DESCENDING
 
 from backend.app.api.auth import get_current_user, require_role
 from backend.app.services.course_access import get_accessible_course
 from backend.app.database.mongodb import get_mongodb_database
+from backend.app.storage.file_storage import save_file, read_file_record, delete_file_record
 from backend.app.rag.chunker import chunk_text
 from backend.app.rag.loaders.pdf_loader import load_pdf
 from backend.app.rag.loaders.pptx_loader import load_pptx
@@ -100,10 +101,6 @@ async def upload_document(
 
     document_id = str(uuid4())
     now = datetime.now(timezone.utc)
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    stored_path = UPLOADS_DIR / f"{document_id}{suffix}"
-    relative_path = stored_path.relative_to(BACKEND_ROOT).as_posix()
-
     record = {
         "document_id": document_id,
         "course_id": course_id,
@@ -112,7 +109,8 @@ async def upload_document(
         "file_type": suffix[1:],
         "file_size": len(data),
         "sha256": sha256(data).hexdigest(),
-        "file_path": relative_path,
+        "storage_provider": "gridfs",
+        "storage_file_id": document_id,
         "pages_or_slides_extracted": 0,
         "chunk_count": 0,
         "status": "processing",
@@ -122,9 +120,19 @@ async def upload_document(
     _documents().insert_one(record)
 
     try:
-        stored_path.write_bytes(data)
+        save_file(
+            document_id,
+            filename,
+            data,
+            metadata={
+                "document_id": document_id,
+                "course_id": course_id,
+                "professor_id": current_user["user_id"],
+                "file_type": suffix[1:],
+            },
+        )
         pages_or_slides = (
-            load_pdf(stored_path) if suffix == ".pdf" else load_pptx(stored_path)
+            load_pdf(data, filename) if suffix == ".pdf" else load_pptx(data, filename)
         )
         for item in pages_or_slides:
             metadata = item.setdefault("metadata", {})
@@ -169,9 +177,8 @@ async def upload_document(
         except Exception:
             pass
         try:
-            if stored_path.is_file():
-                stored_path.unlink()
-        except OSError:
+            delete_file_record(record)
+        except Exception:
             pass
         _documents().update_one(
             {"document_id": document_id},
@@ -216,18 +223,37 @@ def _authorized_document_file(document_id: str, current_user: dict) -> dict:
     if document.get("professor_id") != course.get("professor_id"):
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    relative_path = document.get("file_path")
-    if not relative_path:
+    try:
+        if document.get("storage_provider") == "gridfs":
+            data = read_file_record(document)
+        else:
+            # Preserve the old local-file path contract for pre-migration records,
+            # while preventing paths from escaping the uploads directory.
+            relative_path = document.get("file_path")
+            if not relative_path:
+                raise FileNotFoundError
+            uploads_root = UPLOADS_DIR.resolve()
+            file_path = (BACKEND_ROOT / relative_path).resolve()
+            if uploads_root not in file_path.parents or not file_path.is_file():
+                raise FileNotFoundError
+            data = file_path.read_bytes()
+    except (FileNotFoundError, OSError, RuntimeError):
         raise HTTPException(status_code=404, detail="Original file is unavailable.")
+    return {"document": document, "data": data}
 
-    uploads_root = UPLOADS_DIR.resolve()
-    file_path = (BACKEND_ROOT / relative_path).resolve()
-    if file_path != uploads_root and uploads_root not in file_path.parents:
-        raise HTTPException(status_code=404, detail="Original file is unavailable.")
-    if not file_path.is_file():
-        raise HTTPException(status_code=404, detail="Original file is unavailable.")
 
-    return {"document": document, "file_path": file_path}
+def _document_response(document: dict, data: bytes, disposition: str) -> Response:
+    media_type = (
+        "application/pdf" if document.get("file_type") == "pdf"
+        else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
+    from urllib.parse import quote
+    filename = document.get("filename", "course-material")
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Content-Disposition": f"{disposition}; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.get("/{document_id}/view")
@@ -235,19 +261,9 @@ def view_document(
     document_id: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Stream the original course document for in-browser viewing where supported."""
+    """Return the original course document inline for browser viewing."""
     result = _authorized_document_file(document_id, current_user)
-    document = result["document"]
-    media_type = (
-        "application/pdf" if document.get("file_type") == "pdf"
-        else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    )
-    return FileResponse(
-        result["file_path"],
-        media_type=media_type,
-        filename=document.get("filename", "course-material"),
-        content_disposition_type="inline",
-    )
+    return _document_response(result["document"], result["data"], "inline")
 
 
 @router.get("/{document_id}/download")
@@ -257,17 +273,7 @@ def download_document(
 ):
     """Download the original uploaded course document."""
     result = _authorized_document_file(document_id, current_user)
-    document = result["document"]
-    media_type = (
-        "application/pdf" if document.get("file_type") == "pdf"
-        else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    )
-    return FileResponse(
-        result["file_path"],
-        media_type=media_type,
-        filename=document.get("filename", "course-material"),
-        content_disposition_type="attachment",
-    )
+    return _document_response(result["document"], result["data"], "attachment")
 
 
 @router.delete("/{document_id}")
@@ -288,9 +294,7 @@ def delete_document(
     # Remove vectors first. If this fails, retain the registry record so the
     # professor can retry rather than silently orphaning vectors.
     deleted_chunks = delete_document_chunks(document_id)
-    file_path = BACKEND_ROOT / document.get("file_path", "")
-    if document.get("file_path") and file_path.is_file():
-        file_path.unlink()
+    delete_file_record(document)
 
     _documents().delete_one({"document_id": document_id})
     return {

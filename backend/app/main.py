@@ -1,4 +1,8 @@
+
+import os
+
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.documents import router as documents_router
 from backend.app.api.retrieval import router as retrieval_router
@@ -18,12 +22,32 @@ from backend.app.api.learning_plans import router as learning_plans_router
 from backend.app.api.risk_assessment import router as risk_assessment_router
 from backend.app.api.semester_planner import router as semester_planner_router
 
+
 app = FastAPI(
     title="Agentic AI Classroom Simulation System",
     version="0.1.0",
     description="RAG foundation and Content Agent scaffold.",
 )
 
+# CORS configuration
+frontend_origins = os.getenv(
+    "FRONTEND_ORIGINS",
+    "http://localhost:5173"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        origin.strip().rstrip("/")
+        for origin in frontend_origins.split(",")
+        if origin.strip()
+    ],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Register API routers
 app.include_router(documents_router)
 app.include_router(retrieval_router)
 app.include_router(content_router)
@@ -38,9 +62,15 @@ app.include_router(learning_plans_router)
 app.include_router(risk_assessment_router)
 app.include_router(semester_planner_router)
 
+
 @app.get("/")
 def root():
     return {
         "message": "Classroom Simulation Agent API is running",
         "milestone": "RAG Foundation + Content Agent scaffold",
     }
+
+
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}

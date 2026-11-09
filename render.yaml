@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: classroom-simulation-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DATABASE
+        value: classroom_simulation
+      - key: FILE_STORAGE_PROVIDER
+        value: gridfs
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: JWT_SECRET_KEY
+        sync: false
+      - key: PROFESSOR_REGISTRATION_CODE
+        sync: false
+      - key: OLLAMA_URL
+        sync: false
+      - key: OLLAMA_MODEL_NAME
+        value: qwen3:1.7b

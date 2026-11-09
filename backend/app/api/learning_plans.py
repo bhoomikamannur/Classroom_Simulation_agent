@@ -11,6 +11,7 @@ from pymongo import ASCENDING
 
 from backend.app.api.auth import require_role, get_current_user
 from backend.app.database.mongodb import get_mongodb_database
+from backend.app.storage.file_storage import read_file_record
 from backend.app.services.course_access import get_accessible_course
 
 router = APIRouter(prefix="/learning-plans", tags=["Adaptive Learning Plans"])
@@ -527,7 +528,6 @@ def extract_syllabus_structure(
     user: dict = Depends(require_role("professor")),
 ):
     """Extract a reviewable unit/topic outline from an already-uploaded PDF/PPTX."""
-    from pathlib import Path
     import json
     from backend.app.llm.ollama_client import generate
     from backend.app.rag.loaders.pdf_loader import load_pdf
@@ -538,15 +538,18 @@ def extract_syllabus_structure(
         "document_id": request.document_id, "course_id": course_id,
         "professor_id": user["user_id"], "status": "processed",
     }, {"_id": 0})
-    if not document or not document.get("file_path"):
+    if not document:
         raise HTTPException(status_code=404, detail="Processed syllabus document not found in this course.")
-    backend_root = Path(__file__).resolve().parents[2]
-    uploads_root = (backend_root / "data" / "uploads").resolve()
-    path = (backend_root / document["file_path"]).resolve()
-    if uploads_root not in path.parents or not path.is_file():
+    try:
+        file_data = read_file_record(document)
+    except (FileNotFoundError, OSError, RuntimeError):
         raise HTTPException(status_code=404, detail="Original syllabus file is unavailable.")
     try:
-        pages = load_pdf(path) if document.get("file_type") == "pdf" else load_pptx(path)
+        pages = (
+            load_pdf(file_data, document.get("filename"))
+            if document.get("file_type") == "pdf"
+            else load_pptx(file_data, document.get("filename"))
+        )
         text = "\n\n".join(str(page.get("text", "")) for page in pages)
         if not text.strip():
             raise ValueError("No readable text was extracted.")

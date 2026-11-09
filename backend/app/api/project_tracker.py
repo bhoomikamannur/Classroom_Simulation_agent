@@ -4,7 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from pymongo import ASCENDING, DESCENDING
 
@@ -12,6 +12,7 @@ from backend.app.api.auth import get_current_user, require_role
 from backend.app.database.mongodb import get_mongodb_database
 from backend.app.services.course_access import get_accessible_course
 from backend.app.agents.project_analysis_agent import analyse_project_submission
+from backend.app.storage.file_storage import save_file, read_file_record
 
 router = APIRouter(prefix="/project-tracker", tags=["Project Tracker"])
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -410,10 +411,22 @@ async def _save_upload(file: UploadFile, actor: dict) -> dict:
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(status_code=413, detail="Maximum upload size is 30 MB.")
     file_id = str(uuid4())
-    PROJECT_UPLOADS.mkdir(parents=True, exist_ok=True)
-    path = PROJECT_UPLOADS / f"{file_id}{suffix}"
-    path.write_bytes(data)
-    return {"file_id": file_id, "filename": filename, "file_type": suffix.lstrip("."), "file_size": len(data), "file_path": str(path), "uploaded_by": actor["user_id"], "uploaded_at": _now()}
+    save_file(
+        file_id,
+        filename,
+        data,
+        metadata={"file_id": file_id, "uploaded_by": actor["user_id"], "file_type": suffix.lstrip(".")},
+    )
+    return {
+        "file_id": file_id,
+        "storage_file_id": file_id,
+        "storage_provider": "gridfs",
+        "filename": filename,
+        "file_type": suffix.lstrip("."),
+        "file_size": len(data),
+        "uploaded_by": actor["user_id"],
+        "uploaded_at": _now(),
+    }
 
 
 @router.post("/student-projects/{student_project_id}/proposal", status_code=201)
@@ -607,10 +620,17 @@ def download_project_file(file_id: str, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=404, detail="File not found.")
         get_accessible_course(project["course_id"], user)
         file_record = project["brief_file"]
-    path = Path(file_record["file_path"])
-    if not path.is_file():
+    try:
+        data = read_file_record(file_record)
+    except (FileNotFoundError, OSError, RuntimeError):
         raise HTTPException(status_code=404, detail="Stored file is unavailable.")
-    return FileResponse(path, filename=file_record["filename"])
+    from urllib.parse import quote
+    filename = file_record.get("filename", "project-file")
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.get("/student-projects/{student_project_id}/reviews")

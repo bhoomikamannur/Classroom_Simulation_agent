@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+from io import BytesIO
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
@@ -11,29 +12,44 @@ import fitz
 from pptx import Presentation
 
 from backend.app.llm.ollama_client import generate
+from backend.app.storage.file_storage import read_file_record
 
 MAX_EXTRACTED_CHARS = 24000
 VALID_STATUSES = {"aligned", "minor_deviation", "major_deviation", "needs_review"}
 
 
-def extract_submission_text(file_path: str) -> tuple[str, str]:
-    path = Path(file_path)
-    if not path.is_file():
-        raise ValueError("The uploaded file is no longer available in project storage.")
-    suffix = path.suffix.lower()
+def extract_submission_text(file_source: str | Path | bytes, filename: str | None = None) -> tuple[str, str]:
+    """Extract supported text from either legacy paths or in-memory stored bytes."""
+    is_bytes = isinstance(file_source, bytes)
+    if is_bytes:
+        source_name = filename or "uploaded-file"
+        suffix = Path(source_name).suffix.lower()
+        source = BytesIO(file_source)
+    else:
+        path = Path(file_source)
+        if not path.is_file():
+            raise ValueError("The uploaded file is no longer available in project storage.")
+        source_name = path.name
+        suffix = path.suffix.lower()
+        source = path
+
     try:
         if suffix == ".pdf":
-            with fitz.open(path) as document:
-                text = "\\n".join(page.get_text("text") for page in document)
+            if is_bytes:
+                with fitz.open(stream=file_source, filetype="pdf") as document:
+                    text = "\\n".join(page.get_text("text") for page in document)
+            else:
+                with fitz.open(source) as document:
+                    text = "\\n".join(page.get_text("text") for page in document)
         elif suffix == ".pptx":
-            presentation = Presentation(str(path))
+            presentation = Presentation(source)
             text = "\\n".join(shape.text for slide in presentation.slides for shape in slide.shapes if getattr(shape, "has_text_frame", False))
         elif suffix == ".docx":
-            with zipfile.ZipFile(path) as archive:
+            with zipfile.ZipFile(source) as archive:
                 root = ElementTree.fromstring(archive.read("word/document.xml"))
             text = "\\n".join(node.text or "" for node in root.iter() if node.tag.endswith("}t"))
         elif suffix in {".txt", ".md", ".csv", ".py", ".js", ".ts", ".ipynb"}:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = file_source.decode("utf-8", errors="replace") if is_bytes else Path(source).read_text(encoding="utf-8", errors="replace")
         elif suffix in {".png", ".jpg", ".jpeg", ".webp"}:
             return "", "Image evidence was uploaded. This configured text-extraction pipeline does not perform OCR or visual inspection; professor review is required."
         elif suffix == ".zip":
@@ -41,7 +57,7 @@ def extract_submission_text(file_path: str) -> tuple[str, str]:
         else:
             return "", f"No text extractor is configured for {suffix or 'this file type'}."
     except Exception as exc:
-        raise ValueError(f"Could not extract text from {path.name}: {exc}") from exc
+        raise ValueError(f"Could not extract text from {source_name}: {exc}") from exc
     text = text.strip()
     if not text:
         return "", "No readable text was extracted. The professor should inspect the original file."
@@ -251,15 +267,23 @@ def analyse_project_submission(
     Professor feedback is context, not an instruction to the model to obey arbitrary
     text embedded in uploaded files. Uploaded content is treated as untrusted evidence.
     """
-    proposal_text, proposal_note = extract_submission_text(proposal_submission["file"]["file_path"])
-    submitted_text, submission_note = extract_submission_text(submission["file"]["file_path"])
+    proposal_record = proposal_submission["file"]
+    submission_record = submission["file"]
+    proposal_text, proposal_note = extract_submission_text(
+        read_file_record(proposal_record, allow_external_legacy=True), proposal_record.get("filename")
+    )
+    submitted_text, submission_note = extract_submission_text(
+        read_file_record(submission_record, allow_external_legacy=True), submission_record.get("filename")
+    )
     brief_text = ""
     brief_note = "No separate professor-uploaded project brief was attached."
-    brief_file = (project.get("brief_file") or {}).get("file_path")
-    if brief_file:
+    brief_record = project.get("brief_file") or {}
+    if brief_record:
         try:
-            brief_text, brief_note = extract_submission_text(brief_file)
-        except ValueError as exc:
+            brief_text, brief_note = extract_submission_text(
+                read_file_record(brief_record, allow_external_legacy=True), brief_record.get("filename")
+            )
+        except (ValueError, FileNotFoundError, OSError) as exc:
             brief_note = f"Professor project brief could not be read: {exc}"
     review_history = previous_reviews or []
     feedback_context = [
